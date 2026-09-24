@@ -1,0 +1,24 @@
+# Maven
+target/
+
+# Java / IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Entorno local (nunca subir credenciales reales)
+.env
+.env.local
+*.env.local

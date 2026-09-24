@@ -1,0 +1,514 @@
+openapi: 3.0.3
+info:
+  title: Clínica Serena API
+  description: |
+    Contrato oficial de la API de Clínica Serena. Es la fuente de verdad
+    compartida entre el backend (Spring Boot), el frontend web (Next.js) y
+    la app Android del paciente.
+
+    Define 9 endpoints iniciales, agrupados en Health, Catálogo, Auth,
+    Citas y Portal del paciente (ver tags).
+
+    ## Estado de implementación
+    - **Fase 1 (actual)**: base técnica, seguridad preparada y `GET /health`
+      implementado. El resto de endpoints descritos aquí son el contrato
+      objetivo; su implementación funcional corresponde a fases siguientes.
+    - **Fase 2 (siguiente)**: implementación de entidades, migraciones,
+      servicios y endpoints funcionales, incluyendo autenticación real con
+      BCrypt + JWT/cookies y control de acceso por rol.
+
+    ## Convenciones
+    - Todos los identificadores (`id`) se representan como `string`.
+    - Todas las fechas/horas se transmiten en formato ISO 8601 (UTC salvo que
+      se indique offset). La interfaz de usuario (web y Android) es
+      responsable de mostrarlas convertidas a la zona horaria
+      `America/Guatemala`.
+    - Los montos monetarios se representan como enteros en centavos
+      (`amountCents`), nunca como decimales.
+    - Los errores siguen siempre el esquema `ApiError`.
+  version: "0.1.0"
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Entorno local de desarrollo
+
+tags:
+  - name: Health
+    description: Estado del servicio.
+  - name: Catálogo
+    description: Especialidades, médicos y disponibilidad. Endpoints públicos.
+  - name: Auth
+    description: Autenticación. Login público; el resto de la API requiere el token emitido aquí.
+  - name: Citas
+    description: Gestión de citas del paciente autenticado.
+  - name: Portal del paciente
+    description: Recetas y chequeos del paciente autenticado.
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Verifica el estado del servicio
+      description: Endpoint público, no requiere autenticación.
+      security: []
+      operationId: getHealth
+      responses:
+        "200":
+          description: El servicio está operativo.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+                  service:
+                    type: string
+                    example: clinica-serena-api
+
+  /especialidades:
+    get:
+      tags: [Catálogo]
+      summary: Lista las especialidades disponibles
+      description: Endpoint público.
+      security: []
+      operationId: listSpecialties
+      responses:
+        "200":
+          description: Listado de especialidades.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Specialty"
+
+  /medicos:
+    get:
+      tags: [Catálogo]
+      summary: Lista los médicos/odontólogos
+      description: Endpoint público. Puede filtrarse por especialidad.
+      security: []
+      operationId: listPractitioners
+      parameters:
+        - name: specialtyId
+          in: query
+          required: false
+          description: Filtra médicos por especialidad.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Listado de médicos.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Practitioner"
+
+  /medicos/{medicoId}/disponibilidad:
+    get:
+      tags: [Catálogo]
+      summary: Consulta la disponibilidad de horarios de un médico
+      description: Endpoint público.
+      security: []
+      operationId: getPractitionerAvailability
+      parameters:
+        - name: medicoId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: desde
+          in: query
+          required: false
+          description: Fecha ISO 8601 desde la cual consultar disponibilidad.
+          schema:
+            type: string
+            format: date
+        - name: hasta
+          in: query
+          required: false
+          description: Fecha ISO 8601 hasta la cual consultar disponibilidad.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Slots de disponibilidad del médico.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AvailabilitySlot"
+        "404":
+          description: El médico no existe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Inicia sesión como paciente
+      description: |
+        Endpoint público. Devuelve un token de acceso que debe enviarse como
+        `Authorization: Bearer <token>` en los endpoints protegidos.
+        La implementación real (BCrypt + JWT/cookies) corresponde a la fase
+        siguiente; en esta fase solo se define el contrato.
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login exitoso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Datos de entrada inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Credenciales inválidas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /citas:
+    post:
+      tags: [Citas]
+      summary: Agenda una nueva cita
+      description: Requiere autenticación con rol `PACIENTE`.
+      security:
+        - bearerAuth: []
+      operationId: createAppointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [practitionerId, specialtyId, scheduledAt]
+              properties:
+                practitionerId:
+                  type: string
+                specialtyId:
+                  type: string
+                scheduledAt:
+                  type: string
+                  format: date-time
+                notes:
+                  type: string
+      responses:
+        "201":
+          description: Cita creada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          description: Datos inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /pacientes/me/citas:
+    get:
+      tags: [Portal del paciente]
+      summary: Lista las citas del paciente autenticado
+      description: Requiere autenticación con rol `PACIENTE`.
+      security:
+        - bearerAuth: []
+      operationId: listMyAppointments
+      parameters:
+        - name: estado
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/AppointmentStatus"
+      responses:
+        "200":
+          description: Listado de citas del paciente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Appointment"
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /pacientes/me/recetas:
+    get:
+      tags: [Portal del paciente]
+      summary: Lista las recetas del paciente autenticado
+      description: Requiere autenticación con rol `PACIENTE`.
+      security:
+        - bearerAuth: []
+      operationId: listMyPrescriptions
+      responses:
+        "200":
+          description: Listado de recetas del paciente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Prescription"
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /pacientes/me/chequeos:
+    get:
+      tags: [Portal del paciente]
+      summary: Lista los chequeos/consultas realizadas al paciente autenticado
+      description: Requiere autenticación con rol `PACIENTE`.
+      security:
+        - bearerAuth: []
+      operationId: listMyCheckups
+      responses:
+        "200":
+          description: Listado de chequeos del paciente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Checkup"
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Token emitido por `POST /auth/login`. La emisión y validación real
+        (BCrypt + JWT/cookies, roles) se implementará en la fase siguiente.
+
+  schemas:
+    AppointmentStatus:
+      type: string
+      enum: [PENDIENTE, CONFIRMADA, CANCELADA, COMPLETADA]
+
+    Specialty:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Odontología general
+        description:
+          type: string
+
+    Practitioner:
+      type: object
+      required: [id, fullName, specialtyId]
+      properties:
+        id:
+          type: string
+        fullName:
+          type: string
+          example: Dra. Ana López
+        specialtyId:
+          type: string
+        specialtyName:
+          type: string
+        licenseNumber:
+          type: string
+
+    AvailabilitySlot:
+      type: object
+      required: [id, practitionerId, startAt, endAt]
+      properties:
+        id:
+          type: string
+        practitionerId:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
+        endAt:
+          type: string
+          format: date-time
+          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
+
+    Appointment:
+      type: object
+      required: [id, patientId, practitionerId, specialtyId, scheduledAt, status]
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        practitionerId:
+          type: string
+        specialtyId:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
+        status:
+          $ref: "#/components/schemas/AppointmentStatus"
+        notes:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+          description: Costo de la consulta en centavos, si aplica.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Prescription:
+      type: object
+      required: [id, patientId, practitionerId, issuedAt, items]
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        practitionerId:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
+        notes:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrescriptionItem"
+
+    PrescriptionItem:
+      type: object
+      required: [id, medicationName, dosage]
+      properties:
+        id:
+          type: string
+        medicationName:
+          type: string
+          example: Amoxicilina 500mg
+        dosage:
+          type: string
+          example: 1 tableta cada 8 horas
+        frequency:
+          type: string
+          example: Cada 8 horas
+        durationDays:
+          type: integer
+
+    Checkup:
+      type: object
+      required: [id, patientId, practitionerId, performedAt]
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        practitionerId:
+          type: string
+        performedAt:
+          type: string
+          format: date-time
+          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
+        diagnosis:
+          type: string
+        notes:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+          description: Costo del chequeo en centavos, si aplica.
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType]
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        expiresInSeconds:
+          type: integer
+
+    ApiError:
+      type: object
+      required: [status, code, message]
+      properties:
+        status:
+          type: integer
+          example: 400
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: Datos inválidos
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+                example: fecha
+              message:
+                type: string
+                example: La fecha es obligatoria
