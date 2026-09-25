@@ -2,15 +2,19 @@ package com.clinicaserena.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
+
+import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 /**
  * Configuración base de seguridad.
@@ -25,8 +29,7 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    private static final String[] PUBLIC_PATHS = {
-            "/api/v1/health",
+    private static final String[] PUBLIC_DOCUMENTATION_PATHS = {
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html"
@@ -40,12 +43,24 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(unauthorizedEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/health",
+                                "/api/v1/especialidades",
+                                "/api/v1/medicos",
+                                "/api/v1/medicos/*/disponibilidad"
+                        ).permitAll()
+                        .requestMatchers(PUBLIC_DOCUMENTATION_PATHS).permitAll()
                         .anyRequest().authenticated()
                 );
 
         return http.build();
+    }
+
+    private AuthenticationEntryPoint unauthorizedEntryPoint() {
+        return (request, response, exception) -> response.sendError(UNAUTHORIZED.value());
     }
 
     @Bean
