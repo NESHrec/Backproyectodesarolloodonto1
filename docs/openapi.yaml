@@ -6,16 +6,16 @@ info:
     compartida entre el backend (Spring Boot), el frontend web (Next.js) y
     la app Android del paciente.
 
-    Define 9 endpoints iniciales, agrupados en Health, Catálogo, Auth,
+    Define los endpoints iniciales, agrupados en Health, Catálogo, Auth,
     Citas y Portal del paciente (ver tags).
 
     ## Estado de implementación
-    - **Fase 1 (actual)**: base técnica, seguridad preparada y `GET /health`
-      implementado. El resto de endpoints descritos aquí son el contrato
-      objetivo; su implementación funcional corresponde a fases siguientes.
-    - **Fase 2 (siguiente)**: implementación de entidades, migraciones,
-      servicios y endpoints funcionales, incluyendo autenticación real con
-      BCrypt + JWT/cookies y control de acceso por rol.
+    - **Implementado en esta fase**: entidades y migración de paciente, cuenta
+      y sesión; `POST /auth/login`, `GET /auth/me` y `POST /auth/logout` con
+      BCrypt y Bearer opaco revocable.
+    - **Pendiente**: registro público, recuperación de cuenta, citas HTTP y
+      endpoints del portal de recetas/chequeos. No se crean cuentas de
+      producción mediante migraciones.
 
     ## Convenciones
     - Todos los identificadores (`id`) se representan como `string`.
@@ -158,8 +158,11 @@ paths:
       description: |
         Endpoint público. Devuelve un token de acceso que debe enviarse como
         `Authorization: Bearer <token>` en los endpoints protegidos.
-        La implementación real (BCrypt + JWT/cookies) corresponde a la fase
-        siguiente; en esta fase solo se define el contrato.
+        La contraseña se verifica con BCrypt. La respuesta contiene un token
+        Bearer opaco de vida limitada; el servidor persiste únicamente su hash
+        y puede revocarlo con `POST /auth/logout`. El límite local predeterminado
+        permite cinco fallos por correo y dirección remota en 60 segundos y
+        aplica una pausa de 60 segundos antes de aceptar nuevos intentos.
       security: []
       operationId: login
       requestBody:
@@ -183,6 +186,46 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "401":
           description: Credenciales inválidas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Consulta la identidad del paciente autenticado
+      description: Requiere un Bearer opaco vigente emitido por el login y el rol PACIENTE.
+      security:
+        - bearerAuth: []
+      operationId: getCurrentPatientIdentity
+      responses:
+        "200":
+          description: Identidad autenticada, sin datos clínicos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientIdentity"
+        "401":
+          description: Token ausente, inválido, expirado o revocado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoca la sesión Bearer actual
+      description: Requiere el rol PACIENTE. La revocación es inmediata.
+      security:
+        - bearerAuth: []
+      operationId: logout
+      responses:
+        "204":
+          description: Sesión revocada.
+        "401":
+          description: No autenticado.
           content:
             application/json:
               schema:
@@ -316,10 +359,10 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      bearerFormat: opaque
       description: |
-        Token emitido por `POST /auth/login`. La emisión y validación real
-        (BCrypt + JWT/cookies, roles) se implementará en la fase siguiente.
+        Token opaco emitido por `POST /auth/login`. Solo se almacena su hash.
+        Expira en 1800 segundos por defecto y se revoca con `POST /auth/logout`.
 
   schemas:
     AppointmentStatus:
@@ -486,6 +529,20 @@ components:
           example: Bearer
         expiresInSeconds:
           type: integer
+
+    PatientIdentity:
+      type: object
+      required: [patientId, email, accountStatus]
+      properties:
+        patientId:
+          type: string
+          description: Identificador estable del paciente autenticado.
+        email:
+          type: string
+          format: email
+        accountStatus:
+          type: string
+          enum: [ACTIVA]
 
     ApiError:
       type: object

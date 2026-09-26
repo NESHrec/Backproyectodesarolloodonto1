@@ -22,6 +22,17 @@ spring:
 server:
   port: 8080
 
+clinica:
+  auth:
+    session-ttl-seconds: 1800
+    login-rate-limit:
+      max-failures: 5
+      max-failures-per-address: 20
+      window-seconds: 60
+      cooldown-seconds: 60
+      max-entries: 10000
+      cleanup-interval-milliseconds: 60000
+
 # Swagger/OpenAPI deshabilitado por defecto. Se habilita solo con
 # --spring.profiles.active=dev (ver application-dev.yml).
 springdoc:
