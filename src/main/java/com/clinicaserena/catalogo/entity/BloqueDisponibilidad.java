@@ -49,4 +49,16 @@ public class BloqueDisponibilidad {
     public OffsetDateTime getFin() {
         return fin;
     }
+
+    public boolean isDisponible() {
+        return disponible;
+    }
+
+    public void reservar() {
+        this.disponible = false;
+    }
+
+    public void liberar() {
+        this.disponible = true;
+    }
 }

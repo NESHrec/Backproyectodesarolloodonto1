@@ -107,5 +107,9 @@ class CatalogoControllerTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/pacientes/me/citas"))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/citas")
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
     }
 }

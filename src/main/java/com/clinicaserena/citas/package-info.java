@@ -1,5 +1,5 @@
 /**
- * Gestión de citas médicas/odontológicas.
- * Pendiente de implementación (fase siguiente).
+ * Persistencia y reserva transaccional de citas.
+ * La exposición HTTP espera autenticación real.
  */
 package com.clinicaserena.citas;
