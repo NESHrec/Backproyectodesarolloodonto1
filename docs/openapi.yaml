@@ -235,7 +235,9 @@ paths:
     post:
       tags: [Citas]
       summary: Agenda una nueva cita
-      description: Requiere autenticación con rol `PACIENTE`.
+      description: |
+        Requiere autenticación con rol `PACIENTE`. El paciente se obtiene del
+        Bearer validado por el servidor; la petición no acepta `patientId`.
       security:
         - bearerAuth: []
       operationId: createAppointment
@@ -244,18 +246,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [practitionerId, specialtyId, scheduledAt]
-              properties:
-                practitionerId:
-                  type: string
-                specialtyId:
-                  type: string
-                scheduledAt:
-                  type: string
-                  format: date-time
-                notes:
-                  type: string
+              $ref: "#/components/schemas/CreateAppointmentRequest"
       responses:
         "201":
           description: Cita creada.
@@ -271,6 +262,18 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "401":
           description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Bloque inexistente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Horario ya reservado o no disponible.
           content:
             application/json:
               schema:
@@ -368,6 +371,24 @@ components:
     AppointmentStatus:
       type: string
       enum: [PENDIENTE, CONFIRMADA, CANCELADA, COMPLETADA]
+
+    CreateAppointmentRequest:
+      type: object
+      additionalProperties: false
+      required: [practitionerId, specialtyId, scheduledAt]
+      properties:
+        practitionerId:
+          type: string
+          minLength: 1
+        specialtyId:
+          type: string
+          minLength: 1
+        scheduledAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          maxLength: 1000
 
     Specialty:
       type: object

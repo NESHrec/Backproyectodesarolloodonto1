@@ -2,6 +2,10 @@ spring:
   application:
     name: clinica-serena-api
 
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
   datasource:
     url: jdbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:clinica_serena}
     username: ${DB_USER:clinica_app}

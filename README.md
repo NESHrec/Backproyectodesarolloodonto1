@@ -11,10 +11,16 @@ Están implementados y son públicos:
 - `GET /api/v1/medicos`
 - `GET /api/v1/medicos?specialtyId={id}`
 - `GET /api/v1/medicos/{medicoId}/disponibilidad`
+- `POST /api/v1/auth/login`
 
-La persistencia de citas y la reserva transaccional de bloques están implementadas en la capa de servicio. La base de datos impide más de una cita no cancelada por bloque y el servicio bloquea la fila de disponibilidad durante la reserva. Una cancelación futura conserva el historial y libera el bloque para una nueva reserva.
+Están implementados y protegidos para pacientes autenticados:
 
-`POST /api/v1/citas` y `GET /api/v1/pacientes/me/citas` permanecen protegidos y todavía no tienen controlador funcional. Aunque OpenAPI define su contrato objetivo, falta autenticación real para obtener `patientId` desde una identidad confiable. No se acepta `patientId` desde el navegador ni se usa un paciente fijo.
+- `GET /api/v1/auth/me`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/citas`
+- `GET /api/v1/pacientes/me/citas`
+
+La autenticación de pacientes usa Bearer opaco de vida limitada: el login devuelve el token una sola vez, la base de datos conserva solo su hash y `logout` revoca la sesión. La persistencia de citas y la reserva transaccional de bloques están expuestas por controlador; el `patientId` se obtiene desde `PatientPrincipal`, no desde JSON, rutas ni query strings. La base de datos impide más de una cita no cancelada por bloque y el servicio bloquea la fila de disponibilidad durante la reserva. Una cancelación futura conserva el historial y libera el bloque para una nueva reserva.
 
 ## Stack
 
@@ -64,4 +70,6 @@ Para Swagger UI en desarrollo:
 
 ## Seguridad
 
-Solo los `GET` de health y catálogo enumerados arriba son públicos. El resto requiere autenticación. Aún no hay login, JWT/cookie ni roles funcionales; las rutas privadas responden `401` y no se han añadido credenciales provisionales, usuarios fijos ni permisos controlados por parámetros del cliente.
+Health, catálogo y login son públicos. El resto requiere `Authorization: Bearer <token>` de un paciente activo. El backend permanece stateless y mantiene CSRF deshabilitado porque no autentica con cookies; la protección CSRF del flujo web se aplica en el BFF de Next.js, antes de reenviar el Bearer al backend.
+
+No se añadieron usuarios fijos, cuentas de ejemplo ni permisos controlados por parámetros del cliente.

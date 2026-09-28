@@ -4,6 +4,7 @@ import com.clinicaserena.catalogo.service.CatalogoService;
 import com.clinicaserena.citas.dto.CrearCitaRequest;
 import com.clinicaserena.common.exception.ApiException;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +26,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 class CitaServiceIntegrationTest {
 
+    private static final String PATIENT_ONE = "90000000-0000-0000-0000-000000000011";
+    private static final String PATIENT_TWO = "90000000-0000-0000-0000-000000000012";
+
     @Autowired CitaService citaService;
     @Autowired CatalogoService catalogoService;
     @Autowired JdbcTemplate jdbc;
@@ -34,6 +38,13 @@ class CitaServiceIntegrationTest {
     private String bloqueId;
     private OffsetDateTime inicio;
 
+    @BeforeEach
+    void prepararPacientes() {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_ONE, now);
+        jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_TWO, now);
+    }
+
     @AfterEach
     void limpiar() {
         if (bloqueId != null) {
@@ -42,13 +53,14 @@ class CitaServiceIntegrationTest {
         }
         if (medicoId != null) jdbc.update("DELETE FROM medicos WHERE id = ?", medicoId);
         if (especialidadId != null) jdbc.update("DELETE FROM especialidades WHERE id = ?", especialidadId);
+        jdbc.update("DELETE FROM pacientes WHERE id IN (?, ?)", PATIENT_ONE, PATIENT_TWO);
     }
 
     @Test
     void reservaValidaPersisteCitaYRetiraBloqueDeDisponibilidadPublica() {
         prepararBloque(true);
 
-        var cita = citaService.reservar("patient-test-1", request(null));
+        var cita = citaService.reservar(PATIENT_ONE, request(null));
 
         assertThat(cita.practitionerId()).isEqualTo(medicoId);
         assertThat(cita.scheduledAt()).isEqualTo(inicio);
@@ -61,7 +73,7 @@ class CitaServiceIntegrationTest {
     @Test
     void rechazaBloqueInexistenteNoDisponibleYOtroProfesional() {
         prepararBloque(false);
-        assertThatThrownBy(() -> citaService.reservar("patient-test-1", request(null)))
+        assertThatThrownBy(() -> citaService.reservar(PATIENT_ONE, request(null)))
                 .isInstanceOf(ApiException.class).hasMessage("El bloque ya no está disponible");
 
         var otro = new CrearCitaRequest("medico-inexistente", especialidadId, inicio, null);
@@ -76,8 +88,8 @@ class CitaServiceIntegrationTest {
         AtomicInteger exitos = new AtomicInteger();
         AtomicInteger conflictos = new AtomicInteger();
 
-        CompletableFuture<Void> primera = reservarConcurrente("patient-test-1", inicioComun, exitos, conflictos);
-        CompletableFuture<Void> segunda = reservarConcurrente("patient-test-2", inicioComun, exitos, conflictos);
+        CompletableFuture<Void> primera = reservarConcurrente(PATIENT_ONE, inicioComun, exitos, conflictos);
+        CompletableFuture<Void> segunda = reservarConcurrente(PATIENT_TWO, inicioComun, exitos, conflictos);
         inicioComun.countDown();
         CompletableFuture.allOf(primera, segunda).get(10, TimeUnit.SECONDS);
 
@@ -89,16 +101,16 @@ class CitaServiceIntegrationTest {
     @Test
     void cancelarAntesDeLaFechaLiberaElBloqueYPermiteVolverAReservar() {
         prepararBloque(true);
-        var primera = citaService.reservar("patient-test-1", request(null));
+        var primera = citaService.reservar(PATIENT_ONE, request(null));
 
-        var cancelada = citaService.cancelar("patient-test-1", primera.id());
+        var cancelada = citaService.cancelar(PATIENT_ONE, primera.id());
 
         assertThat(cancelada.status().name()).isEqualTo("CANCELADA");
         assertThat(jdbc.queryForObject("SELECT disponible FROM bloques_disponibilidad WHERE id = ?", Boolean.class, bloqueId)).isTrue();
         assertThat(catalogoService.obtenerDisponibilidad(medicoId, inicio.toLocalDate(), inicio.toLocalDate()))
                 .anyMatch(slot -> slot.id().equals(bloqueId));
 
-        var segunda = citaService.reservar("patient-test-2", request(null));
+        var segunda = citaService.reservar(PATIENT_TWO, request(null));
 
         assertThat(segunda.id()).isNotEqualTo(primera.id());
         assertThat(jdbc.queryForObject(
@@ -113,7 +125,7 @@ class CitaServiceIntegrationTest {
         prepararBloque(true);
         jdbc.execute("ALTER TABLE citas ADD CONSTRAINT ck_test_rollback CHECK (notas <> 'FORCE_ROLLBACK')");
         try {
-            assertThatThrownBy(() -> citaService.reservar("patient-test-1", request("FORCE_ROLLBACK")))
+            assertThatThrownBy(() -> citaService.reservar(PATIENT_ONE, request("FORCE_ROLLBACK")))
                     .isInstanceOf(DataAccessException.class);
         } finally {
             jdbc.execute("ALTER TABLE citas DROP CONSTRAINT IF EXISTS ck_test_rollback");
@@ -128,7 +140,7 @@ class CitaServiceIntegrationTest {
         prepararBloque(true);
         assertThatThrownBy(() -> citaService.reservar(" ", request(null)))
                 .isInstanceOf(ApiException.class).hasMessage("La identidad del paciente no es válida");
-        assertThatThrownBy(() -> citaService.reservar("patient-test-1", null))
+        assertThatThrownBy(() -> citaService.reservar(PATIENT_ONE, null))
                 .isInstanceOf(ApiException.class).hasMessage("Los datos de la cita son obligatorios");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM citas WHERE bloque_id = ?", Integer.class, bloqueId)).isZero();
     }

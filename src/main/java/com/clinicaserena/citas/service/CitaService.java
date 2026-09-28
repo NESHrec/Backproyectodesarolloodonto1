@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -62,6 +63,15 @@ public class CitaService {
         Cita cita = new Cita(UUID.randomUUID().toString(), pacienteId, bloque, normalizarNotas(request.notes()), ahora);
         bloque.reservar();
         return toDto(citaRepository.saveAndFlush(cita));
+    }
+
+    @Transactional(readOnly = true)
+    public List<CitaDto> listarDelPaciente(String pacienteId, EstadoCita estado) {
+        validarIdentificador(pacienteId, "PATIENT_ID_INVALID", "La identidad del paciente no es válida");
+        List<Cita> citas = estado == null
+                ? citaRepository.findByPacienteIdOrderByProgramadaEnDesc(pacienteId)
+                : citaRepository.findByPacienteIdAndEstadoOrderByProgramadaEnDesc(pacienteId, estado);
+        return citas.stream().map(this::toDto).toList();
     }
 
     /**
