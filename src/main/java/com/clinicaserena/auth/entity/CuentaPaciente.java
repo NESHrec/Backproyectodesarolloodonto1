@@ -40,8 +40,32 @@ public class CuentaPaciente {
     @Column(name = "actualizada_en", nullable = false)
     private OffsetDateTime actualizadaEn;
 
+    @Column(name = "email_verificado_en")
+    private OffsetDateTime emailVerificadoEn;
+
+    @Column(name = "nombre_completo", length = 160)
+    private String nombreCompleto;
+
     protected CuentaPaciente() {
     }
+
+    public static CuentaPaciente crear(String id, Paciente paciente, String email, String passwordHash,
+                                        String nombreCompleto, OffsetDateTime ahora) {
+        CuentaPaciente cuenta = new CuentaPaciente();
+        cuenta.id = id;
+        cuenta.paciente = paciente;
+        cuenta.emailNormalizado = email;
+        cuenta.passwordHash = passwordHash;
+        cuenta.nombreCompleto = nombreCompleto;
+        cuenta.estado = EstadoCuentaPaciente.ACTIVA;
+        cuenta.creadoEn = ahora;
+        cuenta.actualizadaEn = ahora;
+        return cuenta;
+    }
+
+    public OffsetDateTime getEmailVerificadoEn() { return emailVerificadoEn; }
+    public void verificarEmail(OffsetDateTime ahora) { emailVerificadoEn = ahora; actualizadaEn = ahora; }
+    public void cambiarPassword(String hash, OffsetDateTime ahora) { passwordHash = hash; actualizadaEn = ahora; }
 
     public String getId() {
         return id;

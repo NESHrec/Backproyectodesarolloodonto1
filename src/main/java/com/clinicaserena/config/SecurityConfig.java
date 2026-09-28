@@ -65,7 +65,9 @@ public class SecurityConfig {
                                 "/api/v1/medicos",
                                 "/api/v1/medicos/*/disponibilidad"
                         ).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register",
+                                "/api/v1/auth/verify-email", "/api/v1/auth/resend-verification", "/api/v1/auth/password-recovery",
+                                "/api/v1/auth/password-reset").permitAll()
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").hasRole("PACIENTE")
                         .requestMatchers("/api/v1/pacientes/**", "/api/v1/citas/**").hasRole("PACIENTE")
                         .requestMatchers(PUBLIC_DOCUMENTATION_PATHS).permitAll()

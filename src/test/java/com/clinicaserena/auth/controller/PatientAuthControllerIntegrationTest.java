@@ -18,6 +18,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.*;
+import java.util.List;
 
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.http.HttpHeaders.CACHE_CONTROL;
@@ -28,6 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -37,7 +40,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "clinica.auth.login-rate-limit.window-seconds=1",
         "clinica.auth.login-rate-limit.cooldown-seconds=1",
         "clinica.auth.login-rate-limit.max-entries=6",
-        "clinica.auth.login-rate-limit.cleanup-interval-milliseconds=60000"
+        "clinica.auth.login-rate-limit.cleanup-interval-milliseconds=60000",
+        "clinica.auth.public-rate-limit.max-requests=20"
 })
 class PatientAuthControllerIntegrationTest {
 
@@ -59,10 +63,10 @@ class PatientAuthControllerIntegrationTest {
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_ID, now);
         jdbc.update("""
                         INSERT INTO cuentas_paciente(
-                            id, paciente_id, email_normalizado, password_hash, estado, creado_en, actualizada_en
-                        ) VALUES (?, ?, ?, ?, 'ACTIVA', ?, ?)
+                            id, paciente_id, email_normalizado, password_hash, estado, creado_en, actualizada_en, email_verificado_en
+                        ) VALUES (?, ?, ?, ?, 'ACTIVA', ?, ?, ?)
                         """,
-                ACCOUNT_ID, PATIENT_ID, NORMALIZED_EMAIL, passwordEncoder.encode(TEST_PASSWORD), now, now);
+                ACCOUNT_ID, PATIENT_ID, NORMALIZED_EMAIL, passwordEncoder.encode(TEST_PASSWORD), now, now, now);
     }
 
     @AfterEach
@@ -180,6 +184,55 @@ class PatientAuthControllerIntegrationTest {
 
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + rawToken))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void tokenDeVerificacionSoloSeConsumeUnaVezInclusoEnConcurrencia() throws Exception {
+        jdbc.update("UPDATE cuentas_paciente SET email_verificado_en = NULL WHERE id = ?", ACCOUNT_ID);
+        String rawToken="verify-"+UUID.randomUUID(); OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("INSERT INTO tokens_cuenta_paciente(id,cuenta_id,tipo,token_hash,expira_en,creado_en) VALUES (?,?,'VERIFICACION_EMAIL',?,?,?)",
+                UUID.randomUUID().toString(),ACCOUNT_ID,TokenHasher.sha256(rawToken),now.plusMinutes(5),now);
+        ExecutorService pool=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),go=new CountDownLatch(1);
+        Callable<Integer> call=()->{ready.countDown();go.await();return mockMvc.perform(post("/api/v1/auth/verify-email").contentType(APPLICATION_JSON)
+                .content("{\"token\":\""+rawToken+"\"}")).andReturn().getResponse().getStatus();};
+        Future<Integer> first=pool.submit(call),second=pool.submit(call);ready.await();go.countDown();
+        List<Integer> statuses=java.util.stream.Stream.of(first.get(),second.get()).sorted().toList();pool.shutdownNow();
+        assertThat(statuses).containsExactly(204,400);
+        mockMvc.perform(post("/api/v1/auth/verify-email").contentType(APPLICATION_JSON).content("{\"token\":\""+rawToken+"\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void reenvioInvalidaEnlaceAnteriorYConservaRespuestaGenerica() throws Exception {
+        jdbc.update("UPDATE cuentas_paciente SET email_verificado_en = NULL WHERE id = ?", ACCOUNT_ID);
+        String body="{\"email\":\""+EMAIL+"\"}";
+        String first=mockMvc.perform(post("/api/v1/auth/resend-verification").contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        String missing=mockMvc.perform(post("/api/v1/auth/resend-verification").contentType(APPLICATION_JSON).content("{\"email\":\"missing@example.test\"}"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        mockMvc.perform(post("/api/v1/auth/resend-verification").contentType(APPLICATION_JSON).content(body)).andExpect(status().isAccepted());
+        assertThat(first).isEqualTo(missing);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM tokens_cuenta_paciente WHERE cuenta_id=? AND tipo='VERIFICACION_EMAIL' AND usado_en IS NULL",Integer.class,ACCOUNT_ID)).isEqualTo(1);
+    }
+
+    @Test
+    void dosReenviosSimultaneosDejanUnSoloTokenActivoEInvalidanElAnterior() throws Exception {
+        jdbc.update("UPDATE cuentas_paciente SET email_verificado_en = NULL WHERE id = ?", ACCOUNT_ID);
+        String oldRaw="old-verify-"+UUID.randomUUID();OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("INSERT INTO tokens_cuenta_paciente(id,cuenta_id,tipo,token_hash,expira_en,creado_en) VALUES (?,?,'VERIFICACION_EMAIL',?,?,?)",
+                UUID.randomUUID().toString(),ACCOUNT_ID,TokenHasher.sha256(oldRaw),now.plusMinutes(5),now);
+        String body="{\"email\":\""+EMAIL+"\"}";ExecutorService pool=Executors.newFixedThreadPool(2);
+        CountDownLatch ready=new CountDownLatch(2),go=new CountDownLatch(1);
+        Callable<org.springframework.test.web.servlet.MvcResult> call=()->{ready.countDown();go.await();return mockMvc.perform(
+                post("/api/v1/auth/resend-verification").contentType(APPLICATION_JSON).content(body)).andReturn();};
+        Future<org.springframework.test.web.servlet.MvcResult> first=pool.submit(call),second=pool.submit(call);ready.await();go.countDown();
+        var firstResult=first.get();var secondResult=second.get();pool.shutdownNow();
+        assertThat(firstResult.getResponse().getStatus()).isEqualTo(202);
+        assertThat(secondResult.getResponse().getStatus()).isEqualTo(202);
+        assertThat(firstResult.getResponse().getContentAsString()).isEqualTo(secondResult.getResponse().getContentAsString());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM tokens_cuenta_paciente WHERE cuenta_id=? AND tipo='VERIFICACION_EMAIL' AND usado_en IS NULL",Integer.class,ACCOUNT_ID)).isEqualTo(1);
+        mockMvc.perform(post("/api/v1/auth/verify-email").contentType(APPLICATION_JSON)
+                .content("{\"token\":\""+oldRaw+"\"}")).andExpect(status().isBadRequest());
     }
 
     private String loginAndReadToken() throws Exception {

@@ -68,6 +68,7 @@ public class PatientAuthService {
         boolean passwordMatches = passwordEncoder.matches(request.password(), passwordHash);
         boolean accountIsActive = account != null
                 && account.getEstado() == EstadoCuentaPaciente.ACTIVA
+                && account.getEmailVerificadoEn() != null
                 && account.getPaciente().getEstado() == EstadoPaciente.ACTIVO;
         if (!passwordMatches || !accountIsActive) {
             loginAttemptGuard.recordFailure(accountKey, remoteAddress);

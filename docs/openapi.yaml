@@ -151,6 +151,86 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Crea una identidad nueva de paciente
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, email, password]
+              properties:
+                nombre: { type: string, maxLength: 160 }
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, format: password, minLength: 8, maxLength: 72 }
+      responses:
+        "202": { description: Solicitud recibida; respuesta generica. }
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Verifica el correo con un token de un solo uso
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenRequest" }
+      responses:
+        "204": { description: Correo verificado. }
+        "400": { description: Token invalido, vencido o utilizado. }
+  /auth/resend-verification:
+    post:
+      tags: [Auth]
+      summary: Solicita un nuevo enlace de verificacion sin revelar la cuenta
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string, format: email } }
+      responses:
+        "202": { description: Solicitud recibida; respuesta generica. }
+  /auth/password-recovery:
+    post:
+      tags: [Auth]
+      summary: Solicita recuperacion sin revelar si existe la cuenta
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string, format: email } }
+      responses:
+        "202": { description: Solicitud recibida; respuesta generica. }
+  /auth/password-reset:
+    post:
+      tags: [Auth]
+      summary: Cambia la contrasena y revoca todas las sesiones
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, format: password, minLength: 8, maxLength: 72 }
+      responses:
+        "204": { description: Contrasena actualizada y sesiones revocadas. }
+        "400": { description: Token invalido, vencido o utilizado. }
+
   /auth/login:
     post:
       tags: [Auth]
@@ -368,6 +448,11 @@ components:
         Expira en 1800 segundos por defecto y se revoca con `POST /auth/logout`.
 
   schemas:
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, maxLength: 200 }
     AppointmentStatus:
       type: string
       enum: [PENDIENTE, CONFIRMADA, CANCELADA, COMPLETADA]

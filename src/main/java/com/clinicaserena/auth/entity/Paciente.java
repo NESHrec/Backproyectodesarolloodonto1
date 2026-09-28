@@ -27,6 +27,14 @@ public class Paciente {
     protected Paciente() {
     }
 
+    public static Paciente crear(String id, OffsetDateTime creadoEn) {
+        Paciente paciente = new Paciente();
+        paciente.id = id;
+        paciente.estado = EstadoPaciente.ACTIVO;
+        paciente.creadoEn = creadoEn;
+        return paciente;
+    }
+
     public String getId() {
         return id;
     }

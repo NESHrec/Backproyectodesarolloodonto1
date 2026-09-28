@@ -52,9 +52,9 @@ class CitaControllerIntegrationTest {
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_A, now);
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_B, now);
         jdbc.update("""
-                INSERT INTO cuentas_paciente(id, paciente_id, email_normalizado, password_hash, estado, creado_en, actualizada_en)
-                VALUES (?, ?, ?, ?, 'ACTIVA', ?, ?)
-                """, ACCOUNT_A, PATIENT_A, "cita.prueba@example.test", passwordEncoder.encode(PASSWORD), now, now);
+                INSERT INTO cuentas_paciente(id, paciente_id, email_normalizado, password_hash, estado, creado_en, actualizada_en, email_verificado_en)
+                VALUES (?, ?, ?, ?, 'ACTIVA', ?, ?, ?)
+                """, ACCOUNT_A, PATIENT_A, "cita.prueba@example.test", passwordEncoder.encode(PASSWORD), now, now, now);
 
         specialtyId = UUID.randomUUID().toString();
         practitionerId = UUID.randomUUID().toString();

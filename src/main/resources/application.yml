@@ -23,12 +23,29 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
+
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 clinica:
   auth:
     session-ttl-seconds: 1800
+    verification-ttl-seconds: ${AUTH_VERIFICATION_TTL_SECONDS:86400}
+    recovery-ttl-seconds: ${AUTH_RECOVERY_TTL_SECONDS:1800}
+    mail-from: ${AUTH_MAIL_FROM:no-reply@clinica-serena.test}
+    public-web-url: ${AUTH_PUBLIC_WEB_URL:http://localhost:3000}
+    public-rate-limit:
+      max-requests: ${AUTH_RATE_LIMIT_MAX_REQUESTS:3}
+      window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:900}
+      max-entries: ${AUTH_RATE_LIMIT_MAX_ENTRIES:10000}
     login-rate-limit:
       max-failures: 5
       max-failures-per-address: 20

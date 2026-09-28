@@ -62,6 +62,17 @@ Los controladores usan DTOs, la lógica de negocio vive en servicios y el acceso
 
 El backend usa el puerto `8080` y PostgreSQL el `5432` de forma predeterminada. Ambos pueden configurarse con las variables documentadas en `.env.example`.
 
+Registro, verificacion y recuperacion usan SMTP (`SMTP_HOST`, `SMTP_PORT`) y
+`AUTH_PUBLIC_WEB_URL`; los enlaces nunca se construyen desde `Host`. Mailpit queda
+por defecto en `http://localhost:8025`. V7 normaliza correos con `lower(trim(...))`;
+si dos cuentas historicas colisionan, aborta sin borrar ni fusionar identidades. Un
+responsable debe verificar identidad e historicos, asignar correos unicos confirmados
+y reintentar Flyway. El limite publico usa el hash de la identidad normalizada, no la
+IP compartida por el BFF.
+Los enlaces usan el fragmento `#token=`, que no forma parte de la solicitud HTTP
+inicial. Un reenvio limitado invalida enlaces de verificacion anteriores y nunca
+cambia anonimamente la contrasena.
+
 Para Swagger UI en desarrollo:
 
 ```bash
