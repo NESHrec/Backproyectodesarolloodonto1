@@ -7,15 +7,17 @@ info:
     la app Android del paciente.
 
     Define los endpoints iniciales, agrupados en Health, Catálogo, Auth,
-    Citas y Portal del paciente (ver tags).
+    Citas, Portal del paciente y Personal (ver tags).
 
     ## Estado de implementación
     - **Implementado en esta fase**: entidades y migración de paciente, cuenta
       y sesión; `POST /auth/login`, `GET /auth/me` y `POST /auth/logout` con
       BCrypt y Bearer opaco revocable.
-    - **Pendiente**: registro público, recuperación de cuenta, citas HTTP y
-      endpoints del portal de recetas/chequeos. No se crean cuentas de
-      producción mediante migraciones.
+    - **Implementado en esta fase**: autenticación Bearer separada para
+      personal, creación administrativa de cuentas de recepción/médico,
+      agenda persistida y registro de llegada con auditoría.
+    - **Pendiente**: endpoints del portal de recetas/chequeos. La primera cuenta
+      ADMIN se provisiona fuera del API mediante procedimiento operativo controlado.
 
     ## Convenciones
     - Todos los identificadores (`id`) se representan como `string`.
@@ -43,6 +45,8 @@ tags:
     description: Gestión de citas del paciente autenticado.
   - name: Portal del paciente
     description: Recetas y chequeos del paciente autenticado.
+  - name: Personal
+    description: Acceso y operaciones del personal con roles explícitos.
 
 paths:
   /health:
@@ -311,6 +315,151 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /staff/auth/login:
+    post:
+      tags: [Personal]
+      summary: Inicia sesión como personal
+      description: Login público para cuentas ADMIN, RECEPCION o MEDICO. Devuelve un Bearer opaco separado del de pacientes.
+      security: []
+      operationId: loginStaff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffLoginRequest"
+      responses:
+        "200":
+          description: Login exitoso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Credenciales inválidas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /staff/auth/me:
+    get:
+      tags: [Personal]
+      summary: Consulta la identidad del personal autenticado
+      security:
+        - bearerAuth: []
+      operationId: getCurrentStaffIdentity
+      responses:
+        "200":
+          description: Identidad y rol autenticados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffIdentity"
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /staff/auth/logout:
+    post:
+      tags: [Personal]
+      summary: Revoca la sesión del personal
+      security:
+        - bearerAuth: []
+      operationId: logoutStaff
+      responses:
+        "204": { description: Sesión revocada. }
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /staff/accounts:
+    post:
+      tags: [Personal]
+      summary: Crea una cuenta habilitada de recepción o médico
+      description: Requiere rol ADMIN. No permite crear el primer ADMIN desde el API.
+      security:
+        - bearerAuth: []
+      operationId: createStaffAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStaffAccountRequest"
+      responses:
+        "201":
+          description: Cuenta habilitada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffAccount"
+        "403": { description: Solo ADMIN puede crear cuentas de personal. }
+        "409": { description: El correo ya existe. }
+
+  /staff/agenda:
+    get:
+      tags: [Personal]
+      summary: Consulta la agenda persistida
+      description: Requiere rol ADMIN o RECEPCION. El resultado está limitado a 100 filas.
+      security:
+        - bearerAuth: []
+      operationId: listStaffAgenda
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/AppointmentStatus" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Citas persistidas ordenadas por fecha.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ReceptionAppointment" }
+        "403": { description: Rol sin permiso para agenda. }
+
+  /staff/agenda/{appointmentId}/arrival:
+    post:
+      tags: [Personal]
+      summary: Registra la llegada de un paciente
+      description: Requiere RECEPCION. La cita se bloquea durante la operación y una segunda llegada devuelve conflicto.
+      security:
+        - bearerAuth: []
+      operationId: registerAppointmentArrival
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Llegada persistida con actor y hora.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReceptionAppointment" }
+        "404": { description: La cita no existe. }
+        "409": { description: La llegada ya existe o la cita no admite llegada. }
+
   /citas:
     post:
       tags: [Citas]
@@ -448,6 +597,52 @@ components:
         Expira en 1800 segundos por defecto y se revoca con `POST /auth/logout`.
 
   schemas:
+    StaffRole:
+      type: string
+      enum: [ADMIN, RECEPCION, MEDICO]
+    StaffLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 12, maxLength: 72 }
+    StaffIdentity:
+      type: object
+      required: [accountId, email, fullName, role]
+      properties:
+        accountId: { type: string }
+        email: { type: string, format: email }
+        fullName: { type: string }
+        role: { $ref: "#/components/schemas/StaffRole" }
+    CreateStaffAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [email, fullName, role, password]
+      properties:
+        email: { type: string, format: email }
+        fullName: { type: string, maxLength: 160 }
+        role: { type: string, enum: [RECEPCION, MEDICO] }
+        password: { type: string, format: password, minLength: 12, maxLength: 72 }
+    StaffAccount:
+      allOf:
+        - $ref: "#/components/schemas/StaffIdentity"
+        - type: object
+          required: [status]
+          properties:
+            status: { type: string, enum: [ACTIVA, BLOQUEADA] }
+    ReceptionAppointment:
+      type: object
+      required: [id, patientId, practitionerId, specialtyId, scheduledAt, status]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        practitionerId: { type: string }
+        specialtyId: { type: string }
+        scheduledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/AppointmentStatus" }
+        arrivalAt: { type: string, format: date-time, nullable: true }
+        arrivalByAccountId: { type: string, nullable: true }
     TokenRequest:
       type: object
       required: [token]

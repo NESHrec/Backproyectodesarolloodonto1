@@ -57,6 +57,12 @@ public class Cita {
     @Column(name = "actualizada_en", nullable = false)
     private OffsetDateTime actualizadaEn;
 
+    @Column(name = "llegada_en")
+    private OffsetDateTime llegadaEn;
+
+    @Column(name = "llegada_por_personal_id", length = 36)
+    private String llegadaPorPersonalId;
+
     protected Cita() {
     }
 
@@ -84,6 +90,14 @@ public class Cita {
     public Long getMontoCentavos() { return montoCentavos; }
     public OffsetDateTime getCreadaEn() { return creadaEn; }
     public OffsetDateTime getActualizadaEn() { return actualizadaEn; }
+    public OffsetDateTime getLlegadaEn() { return llegadaEn; }
+    public String getLlegadaPorPersonalId() { return llegadaPorPersonalId; }
+
+    public void registrarLlegada(OffsetDateTime ahora, String cuentaPersonalId) {
+        this.llegadaEn = ahora;
+        this.llegadaPorPersonalId = cuentaPersonalId;
+        this.actualizadaEn = ahora;
+    }
 
     public void cancelar(OffsetDateTime ahora) {
         this.estado = EstadoCita.CANCELADA;

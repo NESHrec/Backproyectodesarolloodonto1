@@ -1,6 +1,7 @@
 package com.clinicaserena.config;
 
 import com.clinicaserena.auth.security.PatientBearerAuthenticationFilter;
+import com.clinicaserena.staff.security.StaffBearerAuthenticationFilter;
 import com.clinicaserena.common.response.ApiError;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,7 +49,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            PatientBearerAuthenticationFilter bearerFilter
+            PatientBearerAuthenticationFilter bearerFilter,
+            StaffBearerAuthenticationFilter staffBearerFilter
     ) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -68,12 +70,19 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register",
                                 "/api/v1/auth/verify-email", "/api/v1/auth/resend-verification", "/api/v1/auth/password-recovery",
                                 "/api/v1/auth/password-reset").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/staff/auth/login").permitAll()
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").hasRole("PACIENTE")
                         .requestMatchers("/api/v1/pacientes/**", "/api/v1/citas/**").hasRole("PACIENTE")
+                        .requestMatchers("/api/v1/staff/auth/me", "/api/v1/staff/auth/logout")
+                        .hasAnyRole("ADMIN", "RECEPCION", "MEDICO")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/staff/accounts").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/staff/agenda").hasAnyRole("ADMIN", "RECEPCION")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/staff/agenda/*/arrival").hasRole("RECEPCION")
                         .requestMatchers(PUBLIC_DOCUMENTATION_PATHS).permitAll()
                         .anyRequest().denyAll()
                 );
 
+        http.addFilterBefore(staffBearerFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(bearerFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -124,6 +133,22 @@ public class SecurityConfig {
             PatientBearerAuthenticationFilter filter
     ) {
         FilterRegistrationBean<PatientBearerAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    public StaffBearerAuthenticationFilter staffBearerAuthenticationFilter(
+            ObjectProvider<com.clinicaserena.staff.repository.SesionPersonalRepository> sessionRepository
+    ) {
+        return new StaffBearerAuthenticationFilter(sessionRepository);
+    }
+
+    @Bean
+    public FilterRegistrationBean<StaffBearerAuthenticationFilter> staffBearerAuthenticationFilterRegistration(
+            StaffBearerAuthenticationFilter filter
+    ) {
+        FilterRegistrationBean<StaffBearerAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
         return registration;
     }
