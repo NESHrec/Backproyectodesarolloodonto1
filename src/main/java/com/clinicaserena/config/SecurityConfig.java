@@ -86,6 +86,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/medico/**").hasRole("MEDICO")
                         .requestMatchers(HttpMethod.GET, "/api/v1/staff/agenda").hasAnyRole("ADMIN", "RECEPCION")
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/agenda/*/arrival").hasRole("RECEPCION")
+                        .requestMatchers("/api/v1/staff/billing/**").hasRole("RECEPCION")
                         .requestMatchers(PUBLIC_DOCUMENTATION_PATHS).permitAll()
                         .anyRequest().denyAll()
                 );

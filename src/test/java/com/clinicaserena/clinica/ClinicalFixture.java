@@ -110,6 +110,9 @@ public final class ClinicalFixture {
     public void cleanup() {
         String staffIn = in(STAFF);
         String appointmentsIn = in(APPOINTMENTS);
+        // V10 protege el historial contra UPDATE y DELETE. Las pruebas usan una base
+        // aislada, por lo que vaciamos las dos tablas completas sin debilitar los triggers.
+        jdbc.execute("TRUNCATE TABLE intenciones_pago_recepcion, pagos_citas, cargos_citas_auditoria");
         jdbc.update("DELETE FROM receta_items WHERE atencion_id IN (SELECT id FROM atenciones_clinicas WHERE cita_id IN "
                 + appointmentsIn + " OR paciente_id IN (?, ?))", concat(APPOINTMENTS, PATIENT_X, PATIENT_Y));
         jdbc.update("DELETE FROM atenciones_clinicas WHERE cita_id IN " + appointmentsIn + " OR paciente_id IN (?, ?)",

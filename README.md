@@ -39,6 +39,17 @@ Atención médica (solo `MEDICO` con profesional vinculado):
 - `GET /api/v1/medico/citas/{appointmentId}/expediente`
 - `POST /api/v1/medico/citas/{appointmentId}/atencion`
 
+Cobros de recepción (solo `RECEPCION`):
+
+- `GET /api/v1/staff/billing/appointments`
+- `GET /api/v1/staff/billing/appointments/{appointmentId}`
+- `PUT /api/v1/staff/billing/appointments/{appointmentId}/charge`
+- `POST /api/v1/staff/billing/appointments/{appointmentId}/payments`
+- `GET /api/v1/staff/billing/payment-intent`
+- `PUT /api/v1/staff/billing/appointments/{appointmentId}/payment-intent`
+- `POST /api/v1/staff/billing/payment-intent/commit`
+- `DELETE /api/v1/staff/billing/payment-intent`
+
 La migración V9 añade `cuentas_personal.medico_id` con FK a `medicos`, una
 restricción que solo permite vincular cuentas `MEDICO` y un índice único parcial
 que impide asignar un profesional a dos cuentas activas. Las cuentas MEDICO
@@ -54,6 +65,24 @@ APPOINTMENT_NOT_STARTED` o `ARRIVAL_NOT_REGISTERED` en caso contrario, sin efect
 Las reglas se evalúan con la fila de la cita bloqueada y el reloj inyectable
 `Clock`; la atención completa la cita, existe una por cita (`uq_atencion_cita` y bloqueo de la fila) y
 las tablas `atenciones_clinicas` y `receta_items` rechazan cualquier `UPDATE`.
+
+La migración V10 añade cobros persistidos para recepción sin modificar V1-V9. El
+cargo de una cita atendida se fija una sola vez en `citas.monto_centavos` con
+moneda explícita `GTQ` y auditoría en `cargos_citas_auditoria`. Los pagos se
+registran en `pagos_citas`, vinculados a la cita y a la cuenta de recepción que
+ejecutó la operación. El servidor bloquea la fila de la cita, calcula el saldo,
+rechaza importes negativos, pagos mayores al saldo, citas canceladas o no atendidas
+y deduplica los reintentos de una misma intención por `idempotencyKey`; una clave
+reutilizada con datos distintos se rechaza. Este registro es una constancia
+interna de pago recibido; no procesa tarjetas, transferencias bancarias ni emite
+factura fiscal electrónica.
+
+La migracion V11 persiste una sola intencion de pago activa por cuenta de recepcion.
+Sus datos y su clave de idempotencia son inmutables: preparar datos diferentes con
+una intencion pendiente responde conflicto. `commit` registra o recupera el mismo
+pago de forma idempotente; `DELETE` solo reconoce y retira la intencion cuando el
+servidor comprueba un pago persistido que coincide exactamente. Un error de red, una
+consulta fallida o un historial desactualizado no desbloquean otra intencion.
 
 La agenda lee citas persistidas. Registrar llegada bloquea la fila de la cita,
 valida que no esté cancelada o completada y guarda la hora y la cuenta de personal
@@ -99,6 +128,26 @@ Los controladores usan DTOs, la lógica de negocio vive en servicios y el acceso
    ```bash
    ./mvnw spring-boot:run
    ```
+
+Spring Boot no carga `.env` automaticamente. En PowerShell, carga el archivo en la
+sesion sin imprimir valores antes de ejecutar Maven:
+
+```powershell
+Get-Content .env | ForEach-Object {
+  if ($_ -match '^[ ]*([^#=]+)=(.*)$') {
+    [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2], 'Process')
+  }
+}
+.\mvnw.cmd test
+.\mvnw.cmd spring-boot:run
+```
+
+Las pruebas deben apuntar mediante `DB_NAME` a una base separada de la base
+persistente usada para las cuentas. En el entorno de entrega local, Compose publica
+PostgreSQL en `localhost:55432`, Mailpit SMTP en `1025` y su interfaz web en `8025`;
+el backend permanece en `8080`. Comprueba primero `flyway_schema_history`. Si una
+V10 existente tiene otro checksum, conserva esa base y usa otra base aislada; no
+uses `flyway repair` para ocultar la diferencia.
 
 El backend usa el puerto `8080` y PostgreSQL el `5432` de forma predeterminada. Ambos pueden configurarse con las variables documentadas en `.env.example`.
 

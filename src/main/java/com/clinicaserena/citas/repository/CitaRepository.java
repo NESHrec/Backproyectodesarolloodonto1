@@ -21,6 +21,8 @@ public interface CitaRepository extends JpaRepository<Cita, String> {
 
     List<Cita> findByPacienteIdAndEstadoOrderByProgramadaEnDesc(String pacienteId, EstadoCita estado);
 
+    List<Cita> findByEstadoOrderByProgramadaEnDesc(EstadoCita estado, Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Cita c where c.id = :id")
     Optional<Cita> findByIdForUpdate(@Param("id") String id);

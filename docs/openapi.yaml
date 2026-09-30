@@ -569,6 +569,209 @@ paths:
         "404": { description: La cita no existe. }
         "409": { description: La llegada ya existe o la cita no admite llegada. }
 
+  /staff/billing/appointments:
+    get:
+      tags: [Cobros recepción]
+      summary: Lista citas atendidas para cobro
+      description: Requiere RECEPCION. Devuelve citas COMPLETADA con cargo, pagos y saldo calculado por backend.
+      security:
+        - bearerAuth: []
+      operationId: listReceptionBillingAppointments
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Citas atendidas con estado financiero.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BillingAppointment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /staff/billing/appointments/{appointmentId}:
+    get:
+      tags: [Cobros recepción]
+      summary: Consulta cargo, pagos y saldo de una cita
+      security:
+        - bearerAuth: []
+      operationId: getReceptionBillingAppointment
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      responses:
+        "200":
+          description: Estado financiero de la cita.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingAppointment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+
+  /staff/billing/appointments/{appointmentId}/charge:
+    put:
+      tags: [Cobros recepción]
+      summary: Fija el cargo de una cita atendida
+      description: |
+        Requiere RECEPCION. Solo se permite si la cita está COMPLETADA, tiene atención
+        médica registrada y aún no tiene cargo. La operación queda auditada y no altera
+        importes históricos. Moneda admitida: GTQ.
+      security:
+        - bearerAuth: []
+      operationId: setReceptionAppointmentCharge
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetAppointmentChargeRequest" }
+      responses:
+        "200":
+          description: Cargo fijado y saldo actualizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingAppointment" }
+        "400":
+          description: Monto o moneda inválidos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+        "409":
+          description: Cita no cobrable, sin atención, o cargo ya definido.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /staff/billing/appointments/{appointmentId}/payments:
+    post:
+      tags: [Cobros recepción]
+      summary: Registra una constancia interna de pago recibido
+      description: |
+        Requiere RECEPCION. No procesa tarjetas ni transferencias bancarias: solo
+        registra la constancia interna del pago recibido. El servidor calcula el saldo
+        con la fila de la cita bloqueada, rechaza importes negativos o mayores al saldo
+        y usa `idempotencyKey` para evitar duplicados por reintento. Un reintento de
+        la misma intención devuelve el estado persistido sin crear otro pago; reutilizar
+        la clave para datos distintos responde conflicto.
+      security:
+        - bearerAuth: []
+      operationId: registerReceptionAppointmentPayment
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterPaymentRequest" }
+      responses:
+        "201":
+          description: Pago registrado y saldo actualizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingAppointment" }
+        "400":
+          description: Datos inválidos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+        "409":
+          description: Cargo ausente, intención activa distinta, cita no cobrable o pago mayor al saldo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /staff/billing/appointments/{appointmentId}/payment-intent:
+    put:
+      tags: [Cobros recepción]
+      summary: Prepara de forma persistente una intención de pago
+      description: |
+        Requiere RECEPCION. Conserva importe, método, referencia y clave en PostgreSQL,
+        ligados a la cuenta autenticada. Si ya hay una intención, solo acepta exactamente
+        los mismos datos; cualquier cambio o cita distinta responde `PAYMENT_INTENT_ACTIVE`.
+      security:
+        - bearerAuth: []
+      operationId: prepareReceptionPaymentIntent
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterPaymentRequest" }
+      responses:
+        "200":
+          description: Intención preparada o la misma intención recuperada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentIntent" }
+        "400": { description: Datos inválidos. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+        "409": { description: Existe otra intención activa o la cita no admite el pago. }
+
+  /staff/billing/payment-intent:
+    get:
+      tags: [Cobros recepción]
+      summary: Recupera la intención activa de la cuenta autenticada
+      security:
+        - bearerAuth: []
+      operationId: getReceptionPaymentIntent
+      responses:
+        "200":
+          description: Intención activa, incluidos sus datos inmutables y estado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentIntent" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: La cuenta no tiene una intención activa. }
+    delete:
+      tags: [Cobros recepción]
+      summary: Reconoce y cierra una intención completada
+      description: Solo elimina el bloqueo si el backend prueba que existe exactamente el pago persistido con la misma clave y datos.
+      security:
+        - bearerAuth: []
+      operationId: acknowledgeReceptionPaymentIntent
+      responses:
+        "204": { description: Evidencia verificada; intención cerrada. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: No existe una intención activa. }
+        "409": { description: La intención todavía no tiene evidencia de pago persistido. }
+
+  /staff/billing/payment-intent/commit:
+    post:
+      tags: [Cobros recepción]
+      summary: Ejecuta o reintenta la intención persistida
+      description: |
+        No recibe datos de pago del cliente. Usa exclusivamente la intención guardada y
+        su clave; una repetición devuelve el mismo único pago. La intención permanece
+        `COMPLETADA` hasta que el cliente verifique historial y la reconozca.
+      security:
+        - bearerAuth: []
+      operationId: commitReceptionPaymentIntent
+      responses:
+        "201":
+          description: Pago único persistido y saldo actualizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingAppointment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: No existe intención, o ya no puede aplicarse al saldo. }
+
   /medico/citas:
     get:
       tags: [Atención médica]
@@ -1050,6 +1253,67 @@ components:
         status: { $ref: "#/components/schemas/AppointmentStatus" }
         arrivalAt: { type: string, format: date-time, nullable: true }
         arrivalByAccountId: { type: string, nullable: true }
+    SetAppointmentChargeRequest:
+      type: object
+      additionalProperties: false
+      required: [amount]
+      properties:
+        amount: { type: integer, format: int64, minimum: 1, description: Importe entero en centavos de GTQ. }
+        currency: { type: string, enum: [GTQ], default: GTQ }
+    RegisterPaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [amount, method, idempotencyKey]
+      properties:
+        amount: { type: integer, format: int64, minimum: 1, description: Importe entero en centavos de GTQ. }
+        method: { type: string, enum: [EFECTIVO, TRANSFERENCIA, OTRO] }
+        reference: { type: string, maxLength: 120, nullable: true }
+        idempotencyKey: { type: string, maxLength: 80 }
+    PaymentIntent:
+      type: object
+      required: [appointmentId, amount, method, idempotencyKey, status, createdAt]
+      properties:
+        appointmentId: { type: string }
+        amount: { type: integer, format: int64, minimum: 1 }
+        method: { type: string, enum: [EFECTIVO, TRANSFERENCIA, OTRO] }
+        reference: { type: string, maxLength: 120, nullable: true }
+        idempotencyKey: { type: string, maxLength: 80 }
+        status: { type: string, enum: [PREPARADA, COMPLETADA] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+    BillingPayment:
+      type: object
+      required: [id, appointmentId, registeredByAccountId, amount, currency, method, registeredAt]
+      properties:
+        id: { type: string }
+        appointmentId: { type: string }
+        registeredByAccountId: { type: string }
+        amount: { type: integer, format: int64 }
+        currency: { type: string, enum: [GTQ] }
+        method: { type: string, enum: [EFECTIVO, TRANSFERENCIA, OTRO] }
+        reference: { type: string, nullable: true }
+        idempotencyKey: { type: string }
+        registeredAt: { type: string, format: date-time }
+    BillingAppointment:
+      type: object
+      required: [id, patientId, practitionerId, specialtyId, scheduledAt, status, attended,
+                 currency, paidAmount, chargeDefined, payments]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        practitionerId: { type: string }
+        specialtyId: { type: string }
+        scheduledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/AppointmentStatus" }
+        attended: { type: boolean }
+        chargeAmount: { type: integer, format: int64, nullable: true }
+        currency: { type: string, enum: [GTQ] }
+        paidAmount: { type: integer, format: int64 }
+        balanceAmount: { type: integer, format: int64, nullable: true }
+        chargeDefined: { type: boolean }
+        payments:
+          type: array
+          items: { $ref: "#/components/schemas/BillingPayment" }
     TokenRequest:
       type: object
       required: [token]

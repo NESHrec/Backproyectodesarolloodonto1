@@ -51,6 +51,9 @@ public class Cita {
     @Column(name = "monto_centavos")
     private Long montoCentavos;
 
+    @Column(length = 3, nullable = false)
+    private String moneda = "GTQ";
+
     @Column(name = "creada_en", nullable = false, updatable = false)
     private OffsetDateTime creadaEn;
 
@@ -88,10 +91,17 @@ public class Cita {
     public EstadoCita getEstado() { return estado; }
     public String getNotas() { return notas; }
     public Long getMontoCentavos() { return montoCentavos; }
+    public String getMoneda() { return moneda; }
     public OffsetDateTime getCreadaEn() { return creadaEn; }
     public OffsetDateTime getActualizadaEn() { return actualizadaEn; }
     public OffsetDateTime getLlegadaEn() { return llegadaEn; }
     public String getLlegadaPorPersonalId() { return llegadaPorPersonalId; }
+
+    public void fijarCargo(Long montoCentavos, String moneda, OffsetDateTime ahora) {
+        this.montoCentavos = montoCentavos;
+        this.moneda = moneda;
+        this.actualizadaEn = ahora;
+    }
 
     public void registrarLlegada(OffsetDateTime ahora, String cuentaPersonalId) {
         this.llegadaEn = ahora;
