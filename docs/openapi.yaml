@@ -16,6 +16,10 @@ info:
     - **Implementado en esta fase**: autenticación Bearer separada para
       personal, creación administrativa de cuentas de recepción/médico,
       agenda persistida y registro de llegada con auditoría.
+    - **Implementado en esta fase**: vinculación administrativa de cuentas
+      MEDICO con profesionales del catálogo, citas propias del profesional,
+      expediente básico, historial de atenciones y registro inmutable de
+      atención con diagnóstico y receta (`/medico/**`).
     - **Pendiente**: endpoints del portal de recetas/chequeos. La primera cuenta
       ADMIN se provisiona fuera del API mediante procedimiento operativo controlado.
 
@@ -47,6 +51,12 @@ tags:
     description: Recetas y chequeos del paciente autenticado.
   - name: Personal
     description: Acceso y operaciones del personal con roles explícitos.
+  - name: Atención médica
+    description: |
+      Datos clínicos del profesional vinculado a la sesión MEDICO. El profesional
+      se obtiene del principal autenticado y el paciente de la cita persistida;
+      nunca se aceptan `medicoId`, `patientId` ni roles enviados por el cliente.
+      Todas las respuestas usan `Cache-Control: no-store`.
 
 paths:
   /health:
@@ -402,6 +412,105 @@ paths:
                 $ref: "#/components/schemas/StaffAccount"
         "403": { description: Solo ADMIN puede crear cuentas de personal. }
         "409": { description: El correo ya existe. }
+    get:
+      tags: [Personal]
+      summary: Lista las cuentas de personal con su estado de vinculación
+      description: Requiere rol ADMIN. Las cuentas MEDICO sin profesional aparecen como `PENDIENTE_VINCULACION`.
+      security:
+        - bearerAuth: []
+      operationId: listStaffAccounts
+      parameters:
+        - name: role
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/StaffRole" }
+      responses:
+        "200":
+          description: Cuentas ordenadas por nombre.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StaffAccount" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /staff/accounts/{accountId}/practitioner:
+    parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [Personal]
+      summary: Asigna o corrige el profesional de una cuenta MEDICO
+      description: |
+        Requiere rol ADMIN; el administrador que actúa se toma del principal.
+        La operación bloquea la cuenta y el profesional. La base de datos impide
+        que un profesional quede asignado a dos cuentas activas incluso ante
+        solicitudes concurrentes. Repetir la misma asignación no genera historial;
+        cada cambio se registra en `historial_vinculacion_medico`.
+      security:
+        - bearerAuth: []
+      operationId: linkStaffAccountPractitioner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LinkPractitionerRequest" }
+      responses:
+        "200":
+          description: Cuenta vinculada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffAccount" }
+        "400":
+          description: Cuerpo inválido o la cuenta no es MEDICO (`STAFF_ACCOUNT_NOT_MEDICAL`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: La cuenta (`STAFF_ACCOUNT_NOT_FOUND`) o el profesional (`PRACTITIONER_NOT_FOUND`) no existe.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: El profesional ya está asignado a otra cuenta activa (`PRACTITIONER_ALREADY_LINKED`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+    delete:
+      tags: [Personal]
+      summary: Retira la vinculación de una cuenta MEDICO
+      description: Requiere rol ADMIN. Conserva las atenciones previas y registra el cambio en el historial.
+      security:
+        - bearerAuth: []
+      operationId: unlinkStaffAccountPractitioner
+      responses:
+        "200":
+          description: Cuenta sin vinculación.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffAccount" }
+        "400":
+          description: La cuenta no es MEDICO (`STAFF_ACCOUNT_NOT_MEDICAL`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: La cuenta no existe (`STAFF_ACCOUNT_NOT_FOUND`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: La cuenta no tenía profesional asignado (`PRACTITIONER_NOT_LINKED`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
 
   /staff/agenda:
     get:
@@ -459,6 +568,149 @@ paths:
               schema: { $ref: "#/components/schemas/ReceptionAppointment" }
         "404": { description: La cita no existe. }
         "409": { description: La llegada ya existe o la cita no admite llegada. }
+
+  /medico/citas:
+    get:
+      tags: [Atención médica]
+      summary: Lista solo las citas del profesional vinculado
+      description: |
+        Requiere rol MEDICO con vinculación. Rango predeterminado: desde 7 días
+        antes de ahora hasta 60 días después. Resultado limitado a 100 filas.
+      security:
+        - bearerAuth: []
+      operationId: listOwnMedicalAppointments
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/AppointmentStatus" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Citas propias ordenadas por fecha.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MedicalAppointment" }
+        "400":
+          description: Límite (`LIMIT_INVALID`) o rango (`DATE_RANGE_INVALID`) inválido.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+
+  /medico/citas/{appointmentId}:
+    get:
+      tags: [Atención médica]
+      summary: Abre una cita propia con su atención, si existe
+      security:
+        - bearerAuth: []
+      operationId: getOwnMedicalAppointment
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      responses:
+        "200":
+          description: Cita y atención documentada (`attention` es `null` si aún no existe).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MedicalAppointmentDetail" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+
+  /medico/citas/{appointmentId}/expediente:
+    get:
+      tags: [Atención médica]
+      summary: Consulta el expediente básico del paciente de una cita propia
+      description: |
+        Devuelve los datos básicos del paciente y todas sus atenciones registradas,
+        de cualquier profesional, en orden descendente. `recordId` es `null` hasta
+        que se documenta la primera atención del paciente.
+      security:
+        - bearerAuth: []
+      operationId: getMedicalRecordForAppointment
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      responses:
+        "200":
+          description: Expediente e historial.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClinicalRecord" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+        "409":
+          description: La cita histórica no está asociada a un paciente registrado (`PATIENT_RECORD_UNAVAILABLE`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /medico/citas/{appointmentId}/atencion:
+    post:
+      tags: [Atención médica]
+      summary: Documenta la atención, el diagnóstico y la receta de una cita propia
+      description: |
+        Flujo presencial. Dentro de la misma transacción, con la fila de la cita
+        bloqueada, el servidor exige que:
+        1. la cita pertenezca al profesional vinculado al principal (si no, `404`);
+        2. no tenga atención previa y esté `PENDIENTE` o `CONFIRMADA`;
+        3. su hora programada ya haya comenzado (`scheduledAt <= ahora`, comparando
+           instantes con el reloj del servidor);
+        4. recepción haya registrado la llegada (`arrivalAt` no nulo).
+        Si alguna regla falla se responde `409` y no se crea atención, receta ni
+        expediente, ni cambia el estado de la cita. Si todas se cumplen, la cita pasa
+        a `COMPLETADA` en la misma transacción. Autor, profesional, paciente y fecha
+        se derivan del principal y de la cita. Existe una sola atención por cita y
+        las atenciones y recetas guardadas no admiten modificaciones.
+      security:
+        - bearerAuth: []
+      operationId: recordMedicalAttention
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordAttentionRequest" }
+      responses:
+        "201":
+          description: Atención registrada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Attention" }
+        "400":
+          description: Datos inválidos o campos no permitidos (`VALIDATION_ERROR`, `INVALID_REQUEST`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+        "409":
+          description: |
+            Se informa la primera regla incumplida, en este orden:
+            `ATTENTION_ALREADY_RECORDED` si la cita ya tiene atención,
+            `APPOINTMENT_NOT_DOCUMENTABLE` si está cancelada o completada,
+            `APPOINTMENT_NOT_STARTED` si su hora programada aún no comienza,
+            `ARRIVAL_NOT_REGISTERED` si recepción no registró la llegada, o
+            `PATIENT_RECORD_UNAVAILABLE` si no tiene paciente registrado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
 
   /citas:
     post:
@@ -596,6 +848,37 @@ components:
         Token opaco emitido por `POST /auth/login`. Solo se almacena su hash.
         Expira en 1800 segundos por defecto y se revoca con `POST /auth/logout`.
 
+  parameters:
+    AppointmentId:
+      name: appointmentId
+      in: path
+      required: true
+      schema: { type: string, maxLength: 36 }
+
+  responses:
+    Unauthenticated:
+      description: Sin sesión válida (`UNAUTHENTICATED`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Forbidden:
+      description: La sesión es válida pero su rol no tiene permiso (`FORBIDDEN`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    MedicalForbidden:
+      description: |
+        `FORBIDDEN` para ADMIN, RECEPCION o paciente; `PRACTITIONER_LINK_REQUIRED`
+        para una cuenta MEDICO sin profesional asignado.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    AppointmentNotFound:
+      description: La cita no existe o pertenece a otro profesional (`APPOINTMENT_NOT_FOUND`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+
   schemas:
     StaffRole:
       type: string
@@ -609,12 +892,27 @@ components:
         password: { type: string, format: password, minLength: 12, maxLength: 72 }
     StaffIdentity:
       type: object
-      required: [accountId, email, fullName, role]
+      required: [accountId, email, fullName, role, practitionerLinkStatus]
       properties:
         accountId: { type: string }
         email: { type: string, format: email }
         fullName: { type: string }
         role: { $ref: "#/components/schemas/StaffRole" }
+        practitionerLinkStatus: { $ref: "#/components/schemas/PractitionerLinkStatus" }
+        practitionerId: { type: string, nullable: true }
+    PractitionerLinkStatus:
+      type: string
+      enum: [VINCULADA, PENDIENTE_VINCULACION, NO_APLICA]
+      description: |
+        Derivado de la relación persistida. `PENDIENTE_VINCULACION` identifica
+        cuentas MEDICO que aún no pueden acceder a datos clínicos; `NO_APLICA`
+        corresponde a ADMIN y RECEPCION.
+    LinkPractitionerRequest:
+      type: object
+      additionalProperties: false
+      required: [practitionerId]
+      properties:
+        practitionerId: { type: string, maxLength: 36 }
     CreateStaffAccountRequest:
       type: object
       additionalProperties: false
@@ -625,12 +923,121 @@ components:
         role: { type: string, enum: [RECEPCION, MEDICO] }
         password: { type: string, format: password, minLength: 12, maxLength: 72 }
     StaffAccount:
-      allOf:
-        - $ref: "#/components/schemas/StaffIdentity"
-        - type: object
-          required: [status]
+      type: object
+      required: [accountId, email, fullName, role, status, practitionerLinkStatus]
+      properties:
+        accountId: { type: string }
+        email: { type: string, format: email }
+        fullName: { type: string }
+        role: { $ref: "#/components/schemas/StaffRole" }
+        status: { type: string, enum: [ACTIVA, BLOQUEADA] }
+        practitionerLinkStatus: { $ref: "#/components/schemas/PractitionerLinkStatus" }
+        practitionerId: { type: string, nullable: true }
+        practitionerName: { type: string, nullable: true }
+        practitionerLinkedAt: { type: string, format: date-time, nullable: true }
+    MedicalAppointment:
+      type: object
+      required: [id, patientId, practitionerId, specialtyId, specialtyName, scheduledAt, status,
+                 attentionRecorded, canRecordAttention, attentionBlockers]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        patientName: { type: string, nullable: true }
+        practitionerId: { type: string }
+        specialtyId: { type: string }
+        specialtyName: { type: string }
+        scheduledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/AppointmentStatus" }
+        notes: { type: string, nullable: true }
+        arrivalAt: { type: string, format: date-time, nullable: true }
+        attentionRecorded: { type: boolean }
+        canRecordAttention:
+          type: boolean
+          description: "`true` solo si `attentionBlockers` está vacío. Es informativo: el servidor revalida al guardar."
+        attentionBlockers:
+          type: array
+          description: Reglas que hoy impiden documentar la cita, calculadas con el reloj del servidor.
+          items:
+            type: string
+            enum: [ATTENTION_ALREADY_RECORDED, STATUS_NOT_DOCUMENTABLE, NOT_STARTED, ARRIVAL_NOT_REGISTERED]
+    MedicalAppointmentDetail:
+      type: object
+      required: [appointment]
+      properties:
+        appointment: { $ref: "#/components/schemas/MedicalAppointment" }
+        attention:
+          allOf:
+            - $ref: "#/components/schemas/Attention"
+          nullable: true
+    ClinicalRecord:
+      type: object
+      required: [patient, attentions]
+      properties:
+        patient:
+          type: object
+          required: [id, status, registeredAt]
           properties:
-            status: { type: string, enum: [ACTIVA, BLOQUEADA] }
+            id: { type: string }
+            fullName: { type: string, nullable: true }
+            status: { type: string, enum: [ACTIVO, INACTIVO] }
+            registeredAt: { type: string, format: date-time }
+        recordId: { type: string, nullable: true }
+        recordCreatedAt: { type: string, format: date-time, nullable: true }
+        attentions:
+          type: array
+          items: { $ref: "#/components/schemas/Attention" }
+    RecordAttentionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, diagnosis, prescription]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 1000, description: Motivo de consulta. }
+        findings: { type: string, maxLength: 2000, nullable: true, description: Hallazgos o exploración. }
+        diagnosis: { type: string, minLength: 3, maxLength: 1000 }
+        treatmentPlan: { type: string, maxLength: 2000, nullable: true, description: Plan e indicaciones generales. }
+        prescription:
+          type: array
+          maxItems: 10
+          description: Medicamentos de la receta; puede estar vacía si no se prescribe ninguno.
+          items: { $ref: "#/components/schemas/AttentionPrescriptionItemRequest" }
+    AttentionPrescriptionItemRequest:
+      type: object
+      additionalProperties: false
+      required: [medicine, dose, frequency, duration]
+      properties:
+        medicine: { type: string, minLength: 2, maxLength: 160 }
+        dose: { type: string, maxLength: 80 }
+        frequency: { type: string, maxLength: 80 }
+        duration: { type: string, maxLength: 80 }
+        instructions: { type: string, maxLength: 500, nullable: true }
+    Attention:
+      type: object
+      required: [id, appointmentId, practitionerId, authorAccountId, reason, diagnosis, recordedAt, prescription]
+      properties:
+        id: { type: string }
+        appointmentId: { type: string }
+        appointmentScheduledAt: { type: string, format: date-time }
+        practitionerId: { type: string }
+        practitionerName: { type: string }
+        authorAccountId: { type: string }
+        authorName: { type: string }
+        reason: { type: string }
+        findings: { type: string, nullable: true }
+        diagnosis: { type: string }
+        treatmentPlan: { type: string, nullable: true }
+        recordedAt: { type: string, format: date-time }
+        prescription:
+          type: array
+          items:
+            type: object
+            required: [order, medicine, dose, frequency, duration]
+            properties:
+              order: { type: integer, minimum: 1, maximum: 10 }
+              medicine: { type: string }
+              dose: { type: string }
+              frequency: { type: string }
+              duration: { type: string }
+              instructions: { type: string, nullable: true }
     ReceptionAppointment:
       type: object
       required: [id, patientId, practitionerId, specialtyId, scheduledAt, status]

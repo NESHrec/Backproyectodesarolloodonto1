@@ -40,6 +40,15 @@ public class CuentaPersonal {
     @Column(name = "actualizada_en", nullable = false)
     private OffsetDateTime actualizadaEn;
 
+    @Column(name = "medico_id", length = 36)
+    private String medicoId;
+
+    @Column(name = "medico_vinculado_en")
+    private OffsetDateTime medicoVinculadoEn;
+
+    @Column(name = "medico_vinculado_por", length = 36)
+    private String medicoVinculadoPor;
+
     protected CuentaPersonal() {
     }
 
@@ -63,4 +72,21 @@ public class CuentaPersonal {
     public String getPasswordHash() { return passwordHash; }
     public RolPersonal getRol() { return rol; }
     public EstadoCuentaPersonal getEstado() { return estado; }
+    public String getMedicoId() { return medicoId; }
+    public OffsetDateTime getMedicoVinculadoEn() { return medicoVinculadoEn; }
+    public String getMedicoVinculadoPor() { return medicoVinculadoPor; }
+
+    public void vincularMedico(String medicoId, String adminId, OffsetDateTime ahora) {
+        this.medicoId = medicoId;
+        this.medicoVinculadoEn = ahora;
+        this.medicoVinculadoPor = adminId;
+        this.actualizadaEn = ahora;
+    }
+
+    public void desvincularMedico(OffsetDateTime ahora) {
+        this.medicoId = null;
+        this.medicoVinculadoEn = null;
+        this.medicoVinculadoPor = null;
+        this.actualizadaEn = ahora;
+    }
 }

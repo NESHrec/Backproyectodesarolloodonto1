@@ -28,6 +28,33 @@ El acceso del personal usa un esquema Bearer opaco separado del de pacientes:
 - `GET /api/v1/staff/agenda` (roles `ADMIN` y `RECEPCION`)
 - `POST /api/v1/staff/agenda/{appointmentId}/arrival` (solo `RECEPCION`)
 
+Vinculación médica (solo `ADMIN`):
+
+- `GET /api/v1/staff/accounts?role=MEDICO`
+- `PUT /api/v1/staff/accounts/{accountId}/practitioner` y `DELETE` del mismo recurso
+
+Atención médica (solo `MEDICO` con profesional vinculado):
+
+- `GET /api/v1/medico/citas` y `GET /api/v1/medico/citas/{appointmentId}`
+- `GET /api/v1/medico/citas/{appointmentId}/expediente`
+- `POST /api/v1/medico/citas/{appointmentId}/atencion`
+
+La migración V9 añade `cuentas_personal.medico_id` con FK a `medicos`, una
+restricción que solo permite vincular cuentas `MEDICO` y un índice único parcial
+que impide asignar un profesional a dos cuentas activas. Las cuentas MEDICO
+existentes quedan en `PENDIENTE_VINCULACION` hasta que un ADMIN las asigne; no se
+infiere ninguna relación por nombre ni correo. Cada asignación o corrección se
+registra en `historial_vinculacion_medico`.
+
+El profesional de las operaciones clínicas se obtiene de la cuenta autenticada en
+cada solicitud y el paciente de la cita persistida. Una cita de otro profesional
+responde `404`. Solo se documentan citas `PENDIENTE` o `CONFIRMADA` cuya hora
+programada ya comenzó y con llegada registrada por recepción (`409
+APPOINTMENT_NOT_STARTED` o `ARRIVAL_NOT_REGISTERED` en caso contrario, sin efectos).
+Las reglas se evalúan con la fila de la cita bloqueada y el reloj inyectable
+`Clock`; la atención completa la cita, existe una por cita (`uq_atencion_cita` y bloqueo de la fila) y
+las tablas `atenciones_clinicas` y `receta_items` rechazan cualquier `UPDATE`.
+
 La agenda lee citas persistidas. Registrar llegada bloquea la fila de la cita,
 valida que no esté cancelada o completada y guarda la hora y la cuenta de personal
 que ejecutó la acción. Una segunda solicitud devuelve conflicto y no sobrescribe el
@@ -193,6 +220,8 @@ Para Swagger UI en desarrollo:
 
 Health, catálogo y login de pacientes/personal son públicos únicamente en sus rutas
 de login. El resto requiere `Authorization: Bearer <token>` con el rol específico.
+Sin sesión se responde `401 UNAUTHENTICATED`; con sesión válida y rol incorrecto,
+`403 FORBIDDEN`.
 Los tokens de pacientes y personal se almacenan como hashes en tablas separadas,
 expiran y se revocan con logout. El backend permanece stateless y mantiene CSRF
 deshabilitado porque no autentica con cookies; la protección CSRF del flujo web se

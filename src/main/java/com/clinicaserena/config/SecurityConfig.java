@@ -17,8 +17,10 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -26,6 +28,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
+import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 /**
@@ -59,7 +62,8 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(unauthorizedEntryPoint()))
+                        .authenticationEntryPoint(unauthorizedEntryPoint())
+                        .accessDeniedHandler(forbiddenHandler()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/health",
@@ -76,6 +80,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/staff/auth/me", "/api/v1/staff/auth/logout")
                         .hasAnyRole("ADMIN", "RECEPCION", "MEDICO")
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/accounts").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/staff/accounts").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/staff/accounts/*/practitioner").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/staff/accounts/*/practitioner").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/medico/**").hasRole("MEDICO")
                         .requestMatchers(HttpMethod.GET, "/api/v1/staff/agenda").hasAnyRole("ADMIN", "RECEPCION")
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/agenda/*/arrival").hasRole("RECEPCION")
                         .requestMatchers(PUBLIC_DOCUMENTATION_PATHS).permitAll()
@@ -89,14 +97,25 @@ public class SecurityConfig {
     }
 
     private AuthenticationEntryPoint unauthorizedEntryPoint() {
-        return (request, response, exception) -> {
-            response.setStatus(UNAUTHORIZED.value());
-            response.setContentType("application/json");
-            response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
-            response.getWriter().write(new ObjectMapper().writeValueAsString(
-                    ApiError.of(UNAUTHORIZED.value(), "UNAUTHENTICATED", "Autenticación requerida")
-            ));
-        };
+        return (request, response, exception) -> writeError(response,
+                ApiError.of(UNAUTHORIZED.value(), "UNAUTHENTICATED", "Autenticación requerida"));
+    }
+
+    /**
+     * Escribe el 403 directamente. El manejador por defecto usa sendError y el
+     * contenedor reenvía a /error, donde la solicitud llega sin autenticación y
+     * se respondía 401 aunque la sesión fuera válida.
+     */
+    private AccessDeniedHandler forbiddenHandler() {
+        return (request, response, exception) -> writeError(response,
+                ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
+    }
+
+    private static void writeError(HttpServletResponse response, ApiError error) throws java.io.IOException {
+        response.setStatus(error.status());
+        response.setContentType("application/json");
+        response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
+        response.getWriter().write(new ObjectMapper().writeValueAsString(error));
     }
 
     @Bean

@@ -86,4 +86,8 @@ public class CuentaPaciente {
     public EstadoCuentaPaciente getEstado() {
         return estado;
     }
+
+    public String getNombreCompleto() {
+        return nombreCompleto;
+    }
 }

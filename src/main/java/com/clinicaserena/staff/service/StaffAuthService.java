@@ -10,6 +10,7 @@ import com.clinicaserena.staff.dto.StaffIdentityResponse;
 import com.clinicaserena.staff.dto.StaffLoginRequest;
 import com.clinicaserena.staff.entity.CuentaPersonal;
 import com.clinicaserena.staff.entity.EstadoCuentaPersonal;
+import com.clinicaserena.staff.entity.EstadoVinculacionMedico;
 import com.clinicaserena.staff.entity.RolPersonal;
 import com.clinicaserena.staff.entity.SesionPersonal;
 import com.clinicaserena.staff.repository.CuentaPersonalRepository;
@@ -81,7 +82,10 @@ public class StaffAuthService {
 
     @Transactional(readOnly = true)
     public StaffIdentityResponse me(StaffPrincipal principal) {
-        return new StaffIdentityResponse(principal.accountId(), principal.email(), principal.fullName(), principal.role());
+        CuentaPersonal account = accountRepository.findById(principal.accountId())
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Autenticación requerida"));
+        return new StaffIdentityResponse(account.getId(), account.getEmailNormalizado(), account.getNombreCompleto(),
+                account.getRol(), EstadoVinculacionMedico.de(account), account.getMedicoId());
     }
 
     @Transactional
@@ -105,15 +109,10 @@ public class StaffAuthService {
         try {
             CuentaPersonal account = CuentaPersonal.crear(UUID.randomUUID().toString(), email,
                     request.fullName().trim(), passwordEncoder.encode(request.password()), request.role(), now);
-            return toResponse(accountRepository.saveAndFlush(account));
+            return StaffAccountResponse.of(accountRepository.saveAndFlush(account), null);
         } catch (DataIntegrityViolationException collision) {
             throw new ApiException(HttpStatus.CONFLICT, "STAFF_ACCOUNT_EXISTS", "La cuenta ya existe");
         }
-    }
-
-    private StaffAccountResponse toResponse(CuentaPersonal account) {
-        return new StaffAccountResponse(account.getId(), account.getEmailNormalizado(), account.getNombreCompleto(),
-                account.getRol(), account.getEstado());
     }
 
     private ApiException invalidCredentials() {

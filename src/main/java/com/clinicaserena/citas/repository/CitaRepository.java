@@ -31,4 +31,12 @@ public interface CitaRepository extends JpaRepository<Cita, String> {
                                   @Param("to") OffsetDateTime to,
                                   @Param("status") EstadoCita status,
                                   Pageable pageable);
+
+    @Query("select c from Cita c where c.medico.id = :medicoId and c.programadaEn >= :from "
+            + "and c.programadaEn < :to and (:status is null or c.estado = :status) order by c.programadaEn asc")
+    List<Cita> findForPractitioner(@Param("medicoId") String medicoId,
+                                   @Param("from") OffsetDateTime from,
+                                   @Param("to") OffsetDateTime to,
+                                   @Param("status") EstadoCita status,
+                                   Pageable pageable);
 }

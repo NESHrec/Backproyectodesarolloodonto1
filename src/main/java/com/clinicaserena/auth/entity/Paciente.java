@@ -42,4 +42,8 @@ public class Paciente {
     public EstadoPaciente getEstado() {
         return estado;
     }
+
+    public OffsetDateTime getCreadoEn() {
+        return creadoEn;
+    }
 }

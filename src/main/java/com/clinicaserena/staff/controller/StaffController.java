@@ -3,11 +3,14 @@ package com.clinicaserena.staff.controller;
 import com.clinicaserena.auth.dto.LoginResponse;
 import com.clinicaserena.citas.entity.EstadoCita;
 import com.clinicaserena.staff.dto.CreateStaffAccountRequest;
+import com.clinicaserena.staff.dto.LinkPractitionerRequest;
 import com.clinicaserena.staff.dto.ReceptionAppointmentResponse;
 import com.clinicaserena.staff.dto.StaffAccountResponse;
 import com.clinicaserena.staff.dto.StaffIdentityResponse;
 import com.clinicaserena.staff.dto.StaffLoginRequest;
+import com.clinicaserena.staff.entity.RolPersonal;
 import com.clinicaserena.staff.security.StaffPrincipal;
+import com.clinicaserena.staff.service.PractitionerLinkService;
 import com.clinicaserena.staff.service.StaffAgendaService;
 import com.clinicaserena.staff.service.StaffAuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,9 +19,11 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,10 +38,13 @@ public class StaffController {
 
     private final StaffAuthService authService;
     private final StaffAgendaService agendaService;
+    private final PractitionerLinkService linkService;
 
-    public StaffController(StaffAuthService authService, StaffAgendaService agendaService) {
+    public StaffController(StaffAuthService authService, StaffAgendaService agendaService,
+                           PractitionerLinkService linkService) {
         this.authService = authService;
         this.agendaService = agendaService;
+        this.linkService = linkService;
     }
 
     @PostMapping("/auth/login")
@@ -62,6 +70,28 @@ public class StaffController {
     public ResponseEntity<StaffAccountResponse> createAccount(@Valid @RequestBody CreateStaffAccountRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
                 .body(authService.createAccount(request));
+    }
+
+    @GetMapping("/accounts")
+    public ResponseEntity<List<StaffAccountResponse>> listAccounts(@RequestParam(required = false) RolPersonal role) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(linkService.list(role));
+    }
+
+    @PutMapping("/accounts/{accountId}/practitioner")
+    public ResponseEntity<StaffAccountResponse> linkPractitioner(@PathVariable String accountId,
+                                                                 @Valid @RequestBody LinkPractitionerRequest request,
+                                                                 Authentication authentication) {
+        StaffPrincipal principal = (StaffPrincipal) authentication.getPrincipal();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(linkService.link(principal.accountId(), accountId, request.practitionerId()));
+    }
+
+    @DeleteMapping("/accounts/{accountId}/practitioner")
+    public ResponseEntity<StaffAccountResponse> unlinkPractitioner(@PathVariable String accountId,
+                                                                   Authentication authentication) {
+        StaffPrincipal principal = (StaffPrincipal) authentication.getPrincipal();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(linkService.unlink(principal.accountId(), accountId));
     }
 
     @GetMapping("/agenda")

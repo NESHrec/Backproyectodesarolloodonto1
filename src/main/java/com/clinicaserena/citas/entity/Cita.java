@@ -99,6 +99,11 @@ public class Cita {
         this.actualizadaEn = ahora;
     }
 
+    public void completar(OffsetDateTime ahora) {
+        this.estado = EstadoCita.COMPLETADA;
+        this.actualizadaEn = ahora;
+    }
+
     public void cancelar(OffsetDateTime ahora) {
         this.estado = EstadoCita.CANCELADA;
         this.actualizadaEn = ahora;
