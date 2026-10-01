@@ -3,9 +3,11 @@ package com.clinicaserena.auth.controller;
 import com.clinicaserena.auth.dto.LoginRequest;
 import com.clinicaserena.auth.dto.LoginResponse;
 import com.clinicaserena.auth.dto.PatientIdentityResponse;
+import com.clinicaserena.auth.dto.UnifiedLoginResponse;
 import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.auth.service.PatientAuthService;
 import com.clinicaserena.auth.service.PatientAccountService;
+import com.clinicaserena.auth.service.UnifiedAuthService;
 import com.clinicaserena.auth.dto.*;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
@@ -23,10 +25,13 @@ public class PatientAuthController {
 
     private final PatientAuthService authService;
     private final PatientAccountService accountService;
+    private final UnifiedAuthService unifiedAuthService;
 
-    public PatientAuthController(PatientAuthService authService, PatientAccountService accountService) {
+    public PatientAuthController(PatientAuthService authService, PatientAccountService accountService,
+                                 UnifiedAuthService unifiedAuthService) {
         this.authService = authService;
         this.accountService = accountService;
+        this.unifiedAuthService = unifiedAuthService;
     }
 
     @PostMapping("/register")
@@ -62,6 +67,16 @@ public class PatientAuthController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(authService.login(request, httpRequest.getRemoteAddr()));
+    }
+
+    @PostMapping("/login-unified")
+    public ResponseEntity<UnifiedLoginResponse> unifiedLogin(
+            @Valid @RequestBody LoginRequest request,
+            jakarta.servlet.http.HttpServletRequest httpRequest
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(unifiedAuthService.login(request, httpRequest.getRemoteAddr()));
     }
 
     @GetMapping("/me")

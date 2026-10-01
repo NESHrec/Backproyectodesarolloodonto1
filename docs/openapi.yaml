@@ -16,6 +16,10 @@ info:
     - **Implementado en esta fase**: autenticación Bearer separada para
       personal, creación administrativa de cuentas de recepción/médico,
       agenda persistida y registro de llegada con auditoría.
+    - **Implementado para acceso web unificado**: `POST /auth/login-unified`
+      resuelve la cuenta por correo y contraseña sin aceptar un rol del cliente.
+      Si el mismo correo existe en paciente y personal, rechaza el acceso de
+      forma genérica hasta que esa ambigüedad sea resuelta administrativamente.
     - **Implementado en esta fase**: vinculación administrativa de cuentas
       MEDICO con profesionales del catálogo, citas propias del profesional,
       expediente básico, historial de atenciones y registro inmutable de
@@ -278,8 +282,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+
         "401":
           description: Credenciales inválidas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /auth/login-unified:
+    post:
+      tags: [Auth]
+      summary: Inicia sesión web como paciente o personal
+      description: |
+        Endpoint público para la pantalla web única de acceso. El servidor
+        resuelve la identidad por correo normalizado y contraseña; el cliente
+        no envía un rol. Devuelve una respuesta genérica para credenciales
+        inválidas y para correos ambiguos presentes en ambos tipos de cuenta.
+        Las cuentas de Android conservan los endpoints separados existentes.
+      security: []
+      operationId: loginUnified
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login exitoso con el tipo de cuenta resuelto por el servidor.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnifiedLoginResponse"
+        "400":
+          description: Datos de entrada inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Credenciales inválidas o correo ambiguo.
           content:
             application/json:
               schema:
@@ -1501,6 +1547,16 @@ components:
           example: Bearer
         expiresInSeconds:
           type: integer
+
+    UnifiedLoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresInSeconds, accountType, role]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, example: Bearer }
+        expiresInSeconds: { type: integer }
+        accountType: { type: string, enum: [PACIENTE, PERSONAL] }
+        role: { type: string, enum: [PACIENTE, ADMIN, RECEPCION, MEDICO] }
 
     PatientIdentity:
       type: object
