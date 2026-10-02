@@ -54,6 +54,7 @@ public class RecetaItem {
         return item;
     }
 
+    public String getId() { return id; }
     public String getAtencionId() { return atencionId; }
     public short getOrden() { return orden; }
     public String getMedicamento() { return medicamento; }

@@ -17,6 +17,14 @@ public interface AtencionClinicaRepository extends JpaRepository<AtencionClinica
 
     List<AtencionClinica> findByPacienteIdOrderByRegistradaEnDesc(String pacienteId);
 
+    @Query("""
+            select a from AtencionClinica a
+            where a.pacienteId = :pacienteId
+              and exists (select r.id from RecetaItem r where r.atencionId = a.id)
+            order by a.registradaEn desc
+            """)
+    List<AtencionClinica> findPrescriptionsByPacienteId(@Param("pacienteId") String pacienteId);
+
     @Query("select a.citaId from AtencionClinica a where a.citaId in :citaIds")
     List<String> findDocumentedCitaIds(@Param("citaIds") Collection<String> citaIds);
 }

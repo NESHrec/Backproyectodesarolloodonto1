@@ -24,8 +24,10 @@ info:
       MEDICO con profesionales del catálogo, citas propias del profesional,
       expediente básico, historial de atenciones y registro inmutable de
       atención con diagnóstico y receta (`/medico/**`).
-    - **Pendiente**: endpoints del portal de recetas/chequeos. La primera cuenta
-      ADMIN se provisiona fuera del API mediante procedimiento operativo controlado.
+    - **Implementado para el portal del paciente**: consulta de recetas propias
+      persistidas mediante `GET /pacientes/me/recetas`.
+    - **Pendiente**: endpoint de chequeos del portal. La primera cuenta ADMIN se
+      provisiona fuera del API mediante procedimiento operativo controlado.
 
     ## Convenciones
     - Todos los identificadores (`id`) se representan como `string`.
@@ -1043,25 +1045,34 @@ paths:
     get:
       tags: [Portal del paciente]
       summary: Lista las recetas del paciente autenticado
-      description: Requiere autenticación con rol `PACIENTE`.
+      description: |
+        Requiere autenticación con rol `PACIENTE`. La identidad procede
+        exclusivamente del Bearer opaco validado; no acepta `patientId` en ruta,
+        query ni cuerpo. Devuelve las atenciones propias que contienen al menos
+        un medicamento, ordenadas desde la emisión más reciente. No inventa
+        vigencia ni fechas distintas de las persistidas.
       security:
         - bearerAuth: []
       operationId: listMyPrescriptions
       responses:
         "200":
-          description: Listado de recetas del paciente.
+          description: Lista de recetas propias; arreglo vacío si no existen.
+          headers:
+            Cache-Control:
+              description: La respuesta clínica no se almacena en caché.
+              schema: { type: string, example: no-store }
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/Prescription"
-        "401":
-          description: No autenticado.
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: La identidad autenticada no tiene rol PACIENTE.
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+              schema: { $ref: "#/components/schemas/ApiError" }
 
   /pacientes/me/chequeos:
     get:
@@ -1465,42 +1476,57 @@ components:
 
     Prescription:
       type: object
-      required: [id, patientId, practitionerId, issuedAt, items]
+      description: Receta derivada de una atención persistida que contiene medicamentos.
+      required: [id, appointmentId, appointmentScheduledAt, issuedAt, practitionerId, practitionerName, items]
       properties:
         id:
           type: string
-        patientId:
+          description: Identificador de la atención que originó la receta.
+        appointmentId:
           type: string
+        appointmentScheduledAt:
+          type: string
+          format: date-time
+          description: Fecha y hora persistida de la cita.
         practitionerId:
+          type: string
+        practitionerName:
           type: string
         issuedAt:
           type: string
           format: date-time
-          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
-        notes:
-          type: string
+          description: Fecha y hora real en que se registró la atención y su receta.
         items:
           type: array
+          minItems: 1
           items:
             $ref: "#/components/schemas/PrescriptionItem"
 
     PrescriptionItem:
       type: object
-      required: [id, medicationName, dosage]
+      required: [id, order, medicine, dose, frequency, duration]
       properties:
         id:
           type: string
-        medicationName:
+        order:
+          type: integer
+          minimum: 1
+          maximum: 10
+        medicine:
           type: string
-          example: Amoxicilina 500mg
-        dosage:
+          example: Medicamento prescrito
+        dose:
           type: string
-          example: 1 tableta cada 8 horas
+          example: 1 tableta
         frequency:
           type: string
           example: Cada 8 horas
-        durationDays:
-          type: integer
+        duration:
+          type: string
+          example: 5 días
+        instructions:
+          type: string
+          nullable: true
 
     Checkup:
       type: object
