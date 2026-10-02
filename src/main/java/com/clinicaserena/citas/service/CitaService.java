@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -21,9 +22,11 @@ public class CitaService {
 
     private final BloqueDisponibilidadRepository bloqueRepository;
     private final CitaRepository citaRepository;
-    public CitaService(BloqueDisponibilidadRepository bloqueRepository, CitaRepository citaRepository) {
+    private final Clock clock;
+    public CitaService(BloqueDisponibilidadRepository bloqueRepository, CitaRepository citaRepository, Clock clock) {
         this.bloqueRepository = bloqueRepository;
         this.citaRepository = citaRepository;
+        this.clock = clock;
     }
 
     /**
@@ -48,6 +51,12 @@ public class CitaService {
                         request.practitionerId(), request.scheduledAt())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SLOT_NOT_FOUND", "El bloque no existe"));
 
+        OffsetDateTime ahora = OffsetDateTime.now(clock);
+        if (bloque.getInicio().isBefore(ahora)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SLOT_IN_PAST",
+                    "No se puede reservar un bloque cuyo inicio ya pasó");
+        }
+
         if (!bloque.getMedico().getId().equals(request.practitionerId())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "SLOT_PRACTITIONER_MISMATCH", "El bloque no pertenece al profesional indicado");
         }
@@ -59,7 +68,6 @@ public class CitaService {
             throw new ApiException(HttpStatus.CONFLICT, "SLOT_NOT_AVAILABLE", "El bloque ya no está disponible");
         }
 
-        OffsetDateTime ahora = OffsetDateTime.now(java.time.Clock.systemUTC());
         Cita cita = new Cita(UUID.randomUUID().toString(), pacienteId, bloque, normalizarNotas(request.notes()), ahora);
         bloque.reservar();
         return toDto(citaRepository.saveAndFlush(cita));
@@ -90,7 +98,7 @@ public class CitaService {
 
         BloqueDisponibilidad bloque = bloqueRepository.findByIdForUpdate(cita.getBloque().getId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SLOT_NOT_FOUND", "El bloque no existe"));
-        OffsetDateTime ahora = OffsetDateTime.now(java.time.Clock.systemUTC());
+        OffsetDateTime ahora = OffsetDateTime.now(clock);
         if (cita.getEstado() == EstadoCita.CANCELADA) {
             throw new ApiException(HttpStatus.CONFLICT, "APPOINTMENT_ALREADY_CANCELLED", "La cita ya está cancelada");
         }

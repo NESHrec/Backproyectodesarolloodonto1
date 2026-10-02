@@ -2,6 +2,7 @@ package com.clinicaserena.citas.service;
 
 import com.clinicaserena.catalogo.service.CatalogoService;
 import com.clinicaserena.citas.dto.CrearCitaRequest;
+import com.clinicaserena.clinica.MutableClock;
 import com.clinicaserena.common.exception.ApiException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.annotation.Import;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -24,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
+@Import(MutableClock.Config.class)
 class CitaServiceIntegrationTest {
 
     private static final String PATIENT_ONE = "90000000-0000-0000-0000-000000000011";
@@ -32,6 +35,7 @@ class CitaServiceIntegrationTest {
     @Autowired CitaService citaService;
     @Autowired CatalogoService catalogoService;
     @Autowired JdbcTemplate jdbc;
+    @Autowired MutableClock clock;
 
     private String especialidadId;
     private String medicoId;
@@ -40,6 +44,7 @@ class CitaServiceIntegrationTest {
 
     @BeforeEach
     void prepararPacientes() {
+        clock.set(OffsetDateTime.of(2026, 10, 1, 15, 0, 0, 0, ZoneOffset.UTC).toInstant());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_ONE, now);
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_TWO, now);
@@ -145,6 +150,45 @@ class CitaServiceIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM citas WHERE bloque_id = ?", Integer.class, bloqueId)).isZero();
     }
 
+    @Test
+    void rechazaReservaSobreBloquePasadoSinModificarElBloque() {
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        OffsetDateTime past = now.minusMinutes(1);
+        prepararBloqueAt(past, true);
+        String historicalAppointment = UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO citas(id,paciente_id,bloque_id,medico_id,especialidad_id,programada_en,estado,creada_en,actualizada_en) VALUES (?,?,?,?,?,?,'COMPLETADA',?,?)",
+                historicalAppointment, PATIENT_ONE, bloqueId, medicoId, especialidadId, past,
+                now.minusDays(1), now.minusDays(1));
+
+        assertThatThrownBy(() -> citaService.reservar(PATIENT_ONE, request(null)))
+                .isInstanceOf(ApiException.class)
+                .satisfies(error -> {
+                    ApiException apiError = (ApiException) error;
+                    assertThat(apiError.getCode()).isEqualTo("SLOT_IN_PAST");
+                    assertThat(apiError.getStatus().value()).isEqualTo(400);
+                });
+        assertThat(jdbc.queryForObject("SELECT disponible FROM bloques_disponibilidad WHERE id = ?", Boolean.class, bloqueId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM citas WHERE bloque_id = ?", Integer.class, bloqueId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM citas WHERE id = ? AND estado = 'COMPLETADA'", Integer.class, historicalAppointment)).isOne();
+    }
+
+    @Test
+    void avanzarSoloElClockExcluyeElBloqueYRechazaLaReserva() {
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        prepararBloqueAt(now.plusHours(1), true);
+        assertThat(catalogoService.obtenerDisponibilidad(medicoId, now.toLocalDate(), now.toLocalDate()))
+                .anyMatch(slot -> slot.id().equals(bloqueId));
+
+        clock.set(now.plusHours(2).toInstant());
+        assertThat(catalogoService.obtenerDisponibilidad(medicoId, now.toLocalDate(), now.toLocalDate()))
+                .noneMatch(slot -> slot.id().equals(bloqueId));
+        assertThatThrownBy(() -> citaService.reservar(PATIENT_ONE, request(null)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("No se puede reservar un bloque cuyo inicio ya pasó");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bloques_disponibilidad WHERE id = ?", Integer.class, bloqueId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT disponible FROM bloques_disponibilidad WHERE id = ?", Boolean.class, bloqueId)).isTrue();
+    }
+
     private CompletableFuture<Void> reservarConcurrente(
             String paciente, CountDownLatch latch, AtomicInteger exitos, AtomicInteger conflictos) {
         return CompletableFuture.runAsync(() -> {
@@ -167,10 +211,14 @@ class CitaServiceIntegrationTest {
     }
 
     private void prepararBloque(boolean disponible) {
+        prepararBloqueAt(OffsetDateTime.now(clock).plusDays(20).withNano(0), disponible);
+    }
+
+    private void prepararBloqueAt(OffsetDateTime scheduledAt, boolean disponible) {
         especialidadId = UUID.randomUUID().toString();
         medicoId = UUID.randomUUID().toString();
         bloqueId = UUID.randomUUID().toString();
-        inicio = OffsetDateTime.now(ZoneOffset.UTC).plusDays(20).withNano(0);
+        inicio = scheduledAt;
         jdbc.update("INSERT INTO especialidades(id, nombre, descripcion) VALUES (?, ?, ?)",
                 especialidadId, "Especialidad " + especialidadId, "Dato ficticio de prueba");
         jdbc.update("INSERT INTO medicos(id, nombre_completo, especialidad_id, numero_colegiado) VALUES (?, ?, ?, ?)",

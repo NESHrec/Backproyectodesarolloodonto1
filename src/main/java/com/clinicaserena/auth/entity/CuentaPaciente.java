@@ -67,6 +67,11 @@ public class CuentaPaciente {
     public void verificarEmail(OffsetDateTime ahora) { emailVerificadoEn = ahora; actualizadaEn = ahora; }
     public void cambiarPassword(String hash, OffsetDateTime ahora) { passwordHash = hash; actualizadaEn = ahora; }
 
+    public void cambiarNombreCompleto(String nombreCompleto, OffsetDateTime ahora) {
+        this.nombreCompleto = nombreCompleto;
+        this.actualizadaEn = ahora;
+    }
+
     public String getId() {
         return id;
     }

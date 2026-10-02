@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.util.Objects;
 @Entity
 @Table(name = "especialidades")
 public class Especialidad {
@@ -22,6 +23,14 @@ public class Especialidad {
     protected Especialidad() {
     }
 
+    public static Especialidad crear(String id, String nombre, String descripcion) {
+        Especialidad especialidad = new Especialidad();
+        especialidad.id = Objects.requireNonNull(id);
+        especialidad.nombre = Objects.requireNonNull(nombre);
+        especialidad.descripcion = Objects.requireNonNull(descripcion);
+        return especialidad;
+    }
+
     public String getId() {
         return id;
     }
@@ -32,5 +41,10 @@ public class Especialidad {
 
     public String getDescripcion() {
         return descripcion;
+    }
+
+    public void actualizar(String nombre, String descripcion) {
+        this.nombre = Objects.requireNonNull(nombre);
+        this.descripcion = Objects.requireNonNull(descripcion);
     }
 }

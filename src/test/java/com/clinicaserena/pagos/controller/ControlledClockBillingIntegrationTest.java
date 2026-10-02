@@ -69,6 +69,8 @@ class ControlledClockBillingIntegrationTest {
         jdbc.update("INSERT INTO bloques_disponibilidad(id, medico_id, inicio, fin, disponible) VALUES (?, ?, ?, ?, true)",
                 TEST_BLOCK, PRACTITIONER_ONE, scheduledAt, scheduledAt.plusMinutes(30));
 
+        // La reserva inicial ocurre antes de avanzar el reloj al inicio del flujo clínico.
+        clock.set(scheduledAt.minusMinutes(1).toInstant());
         appointmentId = citaService.reservar(TEST_PATIENT,
                 new CrearCitaRequest(PRACTITIONER_ONE, SPECIALTY, scheduledAt, "Reserva sintética")).id();
         clock.set(scheduledAt.plusMinutes(30).toInstant());

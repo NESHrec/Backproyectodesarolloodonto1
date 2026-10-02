@@ -24,10 +24,14 @@ info:
       MEDICO con profesionales del catálogo, citas propias del profesional,
       expediente básico, historial de atenciones y registro inmutable de
       atención con diagnóstico y receta (`/medico/**`).
-    - **Implementado para el portal del paciente**: consulta de recetas propias
-      persistidas mediante `GET /pacientes/me/recetas`.
-    - **Pendiente**: endpoint de chequeos del portal. La primera cuenta ADMIN se
-      provisiona fuera del API mediante procedimiento operativo controlado.
+    - **Implementado para el portal del paciente**: perfil propio consultable y
+      actualizable solo en `nombre_completo`, recetas propias y seguimiento
+      clínico derivado de atenciones persistidas.
+    - **Implementado en Tanda 2**: administración persistente de especialidades
+      y consulta/alta de bloques de disponibilidad propios para cuentas MEDICO
+      vinculadas (`/staff/especialidades` y `/staff/medico/horarios`).
+    - La primera cuenta ADMIN se provisiona fuera del API mediante procedimiento
+      operativo controlado.
 
     ## Convenciones
     - Todos los identificadores (`id`) se representan como `string`.
@@ -132,7 +136,10 @@ paths:
     get:
       tags: [Catálogo]
       summary: Consulta la disponibilidad de horarios de un médico
-      description: Endpoint público.
+      description: |
+        Endpoint público. Los horarios se interpretan y presentan en la zona de
+        negocio `America/Guatemala` (UTC-06:00). La respuesta no incluye bloques
+        cuyo inicio ya pasó ni bloques ocupados.
       security: []
       operationId: getPractitionerAvailability
       parameters:
@@ -560,6 +567,151 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
 
+  /staff/especialidades:
+    get:
+      tags: [Personal]
+      summary: Lista especialidades para ADMIN
+      description: Requiere rol ADMIN. Es la vista administrativa del mismo catálogo persistido que consume el endpoint público.
+      security:
+        - bearerAuth: []
+      operationId: listAdminSpecialties
+      responses:
+        "200":
+          description: Especialidades persistidas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Specialty" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Personal]
+      summary: Crea una especialidad
+      description: Requiere ADMIN. El servidor recorta, colapsa espacios y normaliza el nombre a minúsculas antes de persistirlo. No recibe categoría porque el modelo actual no la persiste.
+      security:
+        - bearerAuth: []
+      operationId: createAdminSpecialty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertSpecialtyRequest" }
+      responses:
+        "201":
+          description: Especialidad creada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Specialty" }
+        "400":
+          description: Nombre o descripción vacíos o fuera de longitud.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Ya existe una especialidad con el mismo nombre normalizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /staff/especialidades/{specialtyId}:
+    patch:
+      tags: [Personal]
+      summary: Edita una especialidad
+      description: Requiere ADMIN. Conserva el identificador y las relaciones existentes con médicos y citas; no existe eliminación física.
+      security:
+        - bearerAuth: []
+      operationId: updateAdminSpecialty
+      parameters:
+        - name: specialtyId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertSpecialtyRequest" }
+      responses:
+        "200":
+          description: Especialidad actualizada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Specialty" }
+        "400":
+          description: Nombre o descripción inválidos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: La especialidad no existe.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: El nuevo nombre colisiona con otra especialidad.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /staff/medico/horarios:
+    get:
+      tags: [Personal]
+      summary: Consulta los bloques propios del médico
+      description: Requiere MEDICO con vinculación activa. El profesional se deriva de la cuenta autenticada; no se acepta medicoId.
+      security:
+        - bearerAuth: []
+      operationId: listOwnMedicalScheduleBlocks
+      responses:
+        "200":
+          description: Bloques propios ordenados por inicio, incluidos los ya reservados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ScheduleBlock" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+    post:
+      tags: [Personal]
+      summary: Agrega un bloque propio
+      description: |
+        Requiere MEDICO con vinculación activa. `startAt` y `endAt` deben
+        representar la hora de pared de `America/Guatemala` (UTC-06:00) cuando
+        provienen de la UI. Valida inicio/fin, rechaza un `startAt` pasado y
+        solapamientos, y serializa altas del mismo profesional con un bloqueo
+        pesimista. Agregar un bloque no modifica citas existentes.
+      security:
+        - bearerAuth: []
+      operationId: addOwnMedicalScheduleBlock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleBlockRequest" }
+      responses:
+        "201":
+          description: Bloque disponible creado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleBlock" }
+        "400":
+          description: Inicio/fin ausente, formato inválido, inicio no anterior al fin o `startAt` ya pasado (`SCHEDULE_START_IN_PAST`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+        "409":
+          description: El bloque se solapa con otro del mismo profesional.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
   /staff/agenda:
     get:
       tags: [Personal]
@@ -726,7 +878,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BillingAppointment" }
         "400":
-          description: Datos inválidos.
+          description: Datos inválidos o el inicio del bloque ya pasó (`SLOT_IN_PAST`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
@@ -1041,6 +1193,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /pacientes/me/perfil:
+    get:
+      tags: [Portal del paciente]
+      summary: Consulta el perfil propio del paciente autenticado
+      description: |
+        Requiere autenticación con rol `PACIENTE`. La identidad procede
+        exclusivamente del Bearer opaco validado; no acepta `patientId` en ruta,
+        query ni cuerpo. El correo se devuelve solo como dato de autenticación y
+        no se modifica mediante este endpoint.
+      security:
+        - bearerAuth: []
+      operationId: getMyProfile
+      responses:
+        "200":
+          description: Perfil propio persistido.
+          headers:
+            Cache-Control:
+              description: La respuesta no se almacena en caché.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientProfile"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: La identidad autenticada no tiene rol PACIENTE.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+    patch:
+      tags: [Portal del paciente]
+      summary: Actualiza el nombre completo del paciente autenticado
+      description: |
+        Actualiza únicamente `fullName`, que corresponde a la columna persistida
+        `cuentas_paciente.nombre_completo`. No acepta identificadores de paciente,
+        correo ni campos de autenticación.
+      security:
+        - bearerAuth: []
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePatientProfileRequest"
+      responses:
+        "200":
+          description: Perfil actualizado y persistido.
+          headers:
+            Cache-Control:
+              description: La respuesta no se almacena en caché.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientProfile"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: La identidad autenticada no tiene rol PACIENTE.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
   /pacientes/me/recetas:
     get:
       tags: [Portal del paciente]
@@ -1078,7 +1294,11 @@ paths:
     get:
       tags: [Portal del paciente]
       summary: Lista los chequeos/consultas realizadas al paciente autenticado
-      description: Requiere autenticación con rol `PACIENTE`.
+      description: |
+        Requiere autenticación con rol `PACIENTE`. Cada elemento se deriva de una
+        atención clínica persistida propia, su cita, diagnóstico, hallazgos, plan
+        de tratamiento y recetas relacionadas. No calcula progreso ni fechas
+        futuras.
       security:
         - bearerAuth: []
       operationId: listMyCheckups
@@ -1097,6 +1317,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: La identidad autenticada no tiene rol PACIENTE.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
 
 components:
   securitySchemes:
@@ -1123,6 +1348,11 @@ components:
           schema: { $ref: "#/components/schemas/ApiError" }
     Forbidden:
       description: La sesión es válida pero su rol no tiene permiso (`FORBIDDEN`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    ValidationError:
+      description: Datos de entrada inválidos (`VALIDATION_ERROR`).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ApiError" }
@@ -1398,6 +1628,53 @@ components:
           type: string
           maxLength: 1000
 
+    UpsertSpecialtyRequest:
+      type: object
+      required: [name, description]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Nombre recortado, con espacios colapsados y normalizado a minúsculas por el servidor.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    ScheduleBlockRequest:
+      type: object
+      required: [startAt, endAt]
+      additionalProperties: false
+      properties:
+        startAt:
+          type: string
+          format: date-time
+          description: ISO 8601 con hora de pared de `America/Guatemala` (UTC-06:00) cuando lo envía la UI.
+        endAt:
+          type: string
+          format: date-time
+          description: ISO 8601 con hora de pared de `America/Guatemala` (UTC-06:00) cuando lo envía la UI.
+
+    ScheduleBlock:
+      type: object
+      required: [id, practitionerId, startAt, endAt, available]
+      properties:
+        id:
+          type: string
+        practitionerId:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        available:
+          type: boolean
+          description: False cuando el bloque ya tiene una cita activa; esos bloques siguen visibles al médico pero no al catálogo público.
+
     Specialty:
       type: object
       required: [id, name]
@@ -1530,26 +1807,37 @@ components:
 
     Checkup:
       type: object
-      required: [id, patientId, practitionerId, performedAt]
+      description: Atención clínica persistida del paciente autenticado.
+      required: [id, appointmentId, appointmentScheduledAt, recordedAt, practitionerId, practitionerName, reason, diagnosis, prescription]
       properties:
         id:
           type: string
-        patientId:
+        appointmentId:
           type: string
-        practitionerId:
-          type: string
-        performedAt:
+        appointmentScheduledAt:
           type: string
           format: date-time
-          description: ISO 8601. La UI la muestra convertida a America/Guatemala.
+        practitionerId:
+          type: string
+        practitionerName:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        findings:
+          type: string
+          nullable: true
         diagnosis:
           type: string
-        notes:
+        treatmentPlan:
           type: string
-        amountCents:
-          type: integer
-          format: int64
-          description: Costo del chequeo en centavos, si aplica.
+          nullable: true
+        prescription:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrescriptionItem"
 
     LoginRequest:
       type: object
@@ -1597,6 +1885,41 @@ components:
         accountStatus:
           type: string
           enum: [ACTIVA]
+
+    PatientProfile:
+      type: object
+      required: [patientId, email, accountStatus, registeredAt]
+      properties:
+        patientId:
+          type: string
+          description: Identificador derivado de la sesión autenticada.
+        fullName:
+          type: string
+          nullable: true
+          maxLength: 160
+          description: Valor persistido en cuentas_paciente.nombre_completo.
+        email:
+          type: string
+          format: email
+          readOnly: true
+          description: Correo ligado a autenticación/verificación; no editable aquí.
+        accountStatus:
+          type: string
+          enum: [ACTIVA, BLOQUEADA]
+        registeredAt:
+          type: string
+          format: date-time
+
+    UpdatePatientProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [fullName]
+      properties:
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 160
+          description: Único campo editable en Tanda 1.
 
     ApiError:
       type: object

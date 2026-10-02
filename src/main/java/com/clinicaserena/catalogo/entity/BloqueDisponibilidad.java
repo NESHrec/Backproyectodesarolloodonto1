@@ -9,6 +9,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.time.OffsetDateTime;
+import java.util.Objects;
 
 @Entity
 @Table(name = "bloques_disponibilidad")
@@ -32,6 +33,17 @@ public class BloqueDisponibilidad {
     private boolean disponible;
 
     protected BloqueDisponibilidad() {
+    }
+
+    public static BloqueDisponibilidad crear(String id, Medico medico, OffsetDateTime inicio,
+                                             OffsetDateTime fin) {
+        BloqueDisponibilidad bloque = new BloqueDisponibilidad();
+        bloque.id = Objects.requireNonNull(id);
+        bloque.medico = Objects.requireNonNull(medico);
+        bloque.inicio = Objects.requireNonNull(inicio);
+        bloque.fin = Objects.requireNonNull(fin);
+        bloque.disponible = true;
+        return bloque;
     }
 
     public String getId() {
