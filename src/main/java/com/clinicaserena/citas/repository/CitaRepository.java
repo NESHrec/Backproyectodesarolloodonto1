@@ -41,4 +41,6 @@ public interface CitaRepository extends JpaRepository<Cita, String> {
                                    @Param("to") OffsetDateTime to,
                                    @Param("status") EstadoCita status,
                                    Pageable pageable);
+
+    Optional<Cita> findFirstByMedico_IdAndPacienteIdOrderByProgramadaEnDesc(String medicoId, String pacienteId);
 }

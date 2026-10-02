@@ -32,6 +32,14 @@ info:
       vinculadas (`/staff/especialidades` y `/staff/medico/horarios`).
     - La primera cuenta ADMIN se provisiona fuera del API mediante procedimiento
       operativo controlado.
+    - **Implementado para el portal del paciente**: consulta de recetas propias
+      persistidas mediante `GET /pacientes/me/recetas`.
+    - **Implementado en esta propuesta local**: directorio administrativo de recepción,
+      bitácora acotada de altas administrativas y observaciones odontológicas append-only
+      para citas propias de MEDICO, mediante la migración V12. Estas capacidades aún no
+      están publicadas en remoto.
+    - **Pendiente**: endpoint de chequeos del portal. La primera cuenta ADMIN se
+      provisiona fuera del API mediante procedimiento operativo controlado.
 
     ## Convenciones
     - Todos los identificadores (`id`) se representan como `string`.
@@ -1115,6 +1123,139 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
 
+  /staff/patients:
+    get:
+      tags: [Personal]
+      summary: Consulta el directorio persistido de pacientes
+      description: |
+        Requiere ADMIN o RECEPCION. Devuelve una fila única por `patientId` estable a
+        partir de cuentas autorregistradas, expedientes administrativos y referencias
+        históricas de citas. No une identidades por nombre, correo o teléfono, no devuelve
+        contenido clínico y la consulta está limitada a 100 filas por página. Los datos
+        ausentes en registros históricos se devuelven como null.
+      security:
+        - bearerAuth: []
+      operationId: listAdministrativePatients
+      parameters:
+        - { name: search, in: query, required: false, schema: { type: string, maxLength: 160 } }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: Página del directorio.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdministrativePatientPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Personal]
+      summary: Crea un expediente administrativo de paciente
+      description: |
+        Requiere RECEPCION. Crea un paciente persistido y sus datos administrativos,
+        pero no crea contraseña, cuenta PACIENTE ni verificación de correo. Un correo ya
+        usado por una cuenta requiere un procedimiento futuro de vinculación explícita.
+      security:
+        - bearerAuth: []
+      operationId: createAdministrativePatient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAdministrativePatientRequest" }
+      responses:
+        "201":
+          description: Expediente administrativo creado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdministrativePatient" }
+        "400": { description: Datos inválidos. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Contacto o expediente duplicado. }
+
+  /staff/audit-events:
+    get:
+      tags: [Personal]
+      summary: Consulta la bitácora persistida acotada
+      description: |
+        Solo ADMIN. Esta primera versión registra `PATIENT_ADMINISTRATIVE_RECORD_CREATED`
+        emitido al crear un expediente administrativo desde recepción; no representa una
+        auditoría completa de todas las acciones del sistema. Devuelve actor, acción,
+        entidad y fecha, sin contraseñas, tokens ni contenido clínico.
+      security:
+        - bearerAuth: []
+      operationId: listAuditEvents
+      parameters:
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: Página de eventos persistidos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEventPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /medico/pacientes/{patientId}/odontograma:
+    get:
+      tags: [Atención médica]
+      summary: Consulta observaciones odontológicas de un paciente de la agenda propia
+      description: |
+        Requiere MEDICO vinculado. El paciente solo se puede consultar si existe una
+        cita persistida con el profesional autenticado; no se acepta acceso por ID ajeno.
+        La respuesta contiene observaciones persistidas y puede ser vacía.
+      security:
+        - bearerAuth: []
+      operationId: listOwnPatientDentalObservations
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema: { type: string, maxLength: 36 }
+      responses:
+        "200":
+          description: Observaciones persistidas.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DentalObservationPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+
+  /medico/citas/{appointmentId}/odontograma:
+    post:
+      tags: [Atención médica]
+      summary: Registra una observación dental en una cita propia
+      description: |
+        Requiere MEDICO vinculado a la cita, hora ya iniciada y llegada registrada por
+        recepción. La pieza usa numeración FDI adulta (11–18, 21–28, 31–38, 41–48).
+        Solo se insertan registros inmutables: esta fase no edita ni borra observaciones,
+        no sobrescribe atenciones o recetas y no incluye capacidades avanzadas de planos,
+        imágenes, superficies o tratamientos estructurados.
+      security:
+        - bearerAuth: []
+      operationId: recordDentalObservation
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordDentalObservationRequest" }
+      responses:
+        "201":
+          description: Observación persistida.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DentalObservation" }
+        "400": { description: Pieza u observación inválida. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/MedicalForbidden" }
+        "404": { $ref: "#/components/responses/AppointmentNotFound" }
+        "409": { description: Cita aún no iniciada, sin llegada o no documentable. }
+
   /citas:
     post:
       tags: [Citas]
@@ -1838,6 +1979,85 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PrescriptionItem"
+
+    CreateAdministrativePatientRequest:
+      type: object
+      required: [fullName, phone]
+      properties:
+        fullName: { type: string, minLength: 3, maxLength: 160 }
+        phone: { type: string, minLength: 7, maxLength: 40 }
+        email: { type: string, format: email, maxLength: 254, nullable: true }
+
+    AdministrativePatient:
+      type: object
+      required: [patientId, recordType, patientAccountLinked]
+      properties:
+        patientId: { type: string }
+        fullName: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        recordType: { type: string, enum: [AUTORREGISTRADO, EXPEDIENTE_ADMINISTRATIVO, AUTORREGISTRADO+EXPEDIENTE_ADMINISTRATIVO, HISTORICO] }
+        patientAccountLinked: { type: boolean, description: Solo true si existe vinculación persistida explícita. }
+        createdAt: { type: string, format: date-time, nullable: true }
+
+    AdministrativePatientPage:
+      type: object
+      required: [items, page, size, totalElements, hasNext]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AdministrativePatient" } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        hasNext: { type: boolean }
+
+    AuditEvent:
+      type: object
+      required: [id, actorAccountId, action, entityType, entityId, occurredAt]
+      properties:
+        id: { type: string }
+        actorAccountId: { type: string }
+        action: { type: string, example: PATIENT_ADMINISTRATIVE_RECORD_CREATED }
+        entityType: { type: string, example: PACIENTE_ADMINISTRATIVO }
+        entityId: { type: string }
+        occurredAt: { type: string, format: date-time }
+
+    AuditEventPage:
+      type: object
+      required: [items, page, size, totalElements, hasNext]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AuditEvent" } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        hasNext: { type: boolean }
+
+    RecordDentalObservationRequest:
+      type: object
+      required: [toothNumber, observation]
+      properties:
+        toothNumber: { type: integer, description: Numeración FDI adulta válida. }
+        observation: { type: string, minLength: 1, maxLength: 500 }
+
+    DentalObservation:
+      type: object
+      required: [id, patientId, appointmentId, practitionerId, recordedByAccountId, toothNumber, observation, recordedAt]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        appointmentId: { type: string }
+        practitionerId: { type: string }
+        recordedByAccountId: { type: string }
+        toothNumber: { type: integer }
+        observation: { type: string }
+        recordedAt: { type: string, format: date-time }
+
+    DentalObservationPage:
+      type: object
+      required: [patientId, observations]
+      properties:
+        patientId: { type: string }
+        patientName: { type: string, nullable: true }
+        observations: { type: array, items: { $ref: "#/components/schemas/DentalObservation" } }
 
     LoginRequest:
       type: object
