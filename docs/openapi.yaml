@@ -938,13 +938,12 @@ paths:
       operationId: getReceptionPaymentIntent
       responses:
         "200":
-          description: Intención activa, incluidos sus datos inmutables y estado.
+          description: Estado explícito de la intención activa de la cuenta.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/PaymentIntent" }
+              schema: { $ref: "#/components/schemas/PaymentIntentStatus" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { description: La cuenta no tiene una intención activa. }
     delete:
       tags: [Cobros recepción]
       summary: Reconoce y cierra una intención completada
@@ -1709,6 +1708,19 @@ components:
         status: { type: string, enum: [PREPARADA, COMPLETADA] }
         createdAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
+    PaymentIntentStatus:
+      type: object
+      additionalProperties: false
+      required: [active, intent]
+      properties:
+        active:
+          type: boolean
+          description: Indica si la cuenta autenticada conserva una intención activa.
+        intent:
+          allOf:
+            - $ref: "#/components/schemas/PaymentIntent"
+          nullable: true
+          description: Intención persistida cuando active es true; null cuando no existe.
     BillingPayment:
       type: object
       required: [id, appointmentId, registeredByAccountId, amount, currency, method, registeredAt]

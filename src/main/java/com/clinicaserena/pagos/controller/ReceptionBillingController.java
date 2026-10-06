@@ -3,6 +3,7 @@ package com.clinicaserena.pagos.controller;
 import com.clinicaserena.pagos.dto.BillingAppointmentResponse;
 import com.clinicaserena.pagos.dto.RegisterPaymentRequest;
 import com.clinicaserena.pagos.dto.PaymentIntentResponse;
+import com.clinicaserena.pagos.dto.PaymentIntentStatusResponse;
 import com.clinicaserena.pagos.dto.SetAppointmentChargeRequest;
 import com.clinicaserena.pagos.service.ReceptionBillingService;
 import com.clinicaserena.staff.security.StaffPrincipal;
@@ -64,11 +65,12 @@ public class ReceptionBillingController {
     }
 
     @GetMapping("/payment-intent")
-    public ResponseEntity<PaymentIntentResponse> getPaymentIntent(Authentication authentication) {
+    public ResponseEntity<PaymentIntentStatusResponse> getPaymentIntent(Authentication authentication) {
         PaymentIntentResponse intent = service.getPaymentIntent(principal(authentication));
-        return intent == null
-                ? ResponseEntity.notFound().cacheControl(CacheControl.noStore()).build()
-                : ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(intent);
+        PaymentIntentStatusResponse status = intent == null
+                ? PaymentIntentStatusResponse.absent()
+                : PaymentIntentStatusResponse.active(intent);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(status);
     }
 
     @PutMapping("/appointments/{appointmentId}/payment-intent")

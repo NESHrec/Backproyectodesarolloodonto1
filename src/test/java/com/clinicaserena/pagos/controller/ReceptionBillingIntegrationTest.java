@@ -111,6 +111,12 @@ class ReceptionBillingIntegrationTest {
     @Test
     void intencionPersistidaBloqueaCambiosYSeReconciliaAntesDeLiberarOtroPago() throws Exception {
         String reception = ClinicalFixture.login(mockMvc, objectMapper, "reception.clinical@example.test");
+        mockMvc.perform(get("/api/v1/staff/billing/payment-intent")
+                        .header("Authorization", "Bearer " + reception))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.intent").value(org.hamcrest.Matchers.nullValue()));
         mockMvc.perform(put("/api/v1/staff/billing/appointments/{id}/charge", APPT_X_ONE_PENDING)
                         .header("Authorization", "Bearer " + reception)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -148,15 +154,18 @@ class ReceptionBillingIntegrationTest {
         mockMvc.perform(get("/api/v1/staff/billing/payment-intent")
                         .header("Authorization", "Bearer " + reception))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.idempotencyKey").value("reload-key-1"))
-                .andExpect(jsonPath("$.status").value("COMPLETADA"));
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.intent.idempotencyKey").value("reload-key-1"))
+                .andExpect(jsonPath("$.intent.status").value("COMPLETADA"));
 
         mockMvc.perform(delete("/api/v1/staff/billing/payment-intent")
                         .header("Authorization", "Bearer " + reception))
                 .andExpect(status().isNoContent());
         mockMvc.perform(get("/api/v1/staff/billing/payment-intent")
                         .header("Authorization", "Bearer " + reception))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.intent").value(org.hamcrest.Matchers.nullValue()));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pagos_citas WHERE cita_id = ?", Integer.class,
                 APPT_X_ONE_PENDING)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT coalesce(sum(monto_centavos),0) FROM pagos_citas WHERE cita_id = ?",
@@ -168,6 +177,9 @@ class ReceptionBillingIntegrationTest {
         String doctor = ClinicalFixture.login(mockMvc, objectMapper, "doctor.one@example.test");
         String admin = ClinicalFixture.login(mockMvc, objectMapper, "admin.clinical@example.test");
         for (String token : List.of(doctor, admin)) {
+            mockMvc.perform(get("/api/v1/staff/billing/payment-intent")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden());
             mockMvc.perform(get("/api/v1/staff/billing/appointments/{id}", APPT_X_ONE_PENDING)
                             .header("Authorization", "Bearer " + token))
                     .andExpect(status().isForbidden());
@@ -182,6 +194,8 @@ class ReceptionBillingIntegrationTest {
                         .content("{\"amount\":1,\"method\":\"EFECTIVO\",\"idempotencyKey\":\"denied\"}"))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/staff/billing/appointments/{id}", APPT_X_ONE_PENDING))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/staff/billing/payment-intent"))
                 .andExpect(status().isUnauthorized());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pagos_citas", Integer.class)).isZero();
     }
