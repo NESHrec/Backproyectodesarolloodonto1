@@ -10,9 +10,14 @@ public record ClinicalRecordResponse(
         PatientSummary patient,
         String recordId,
         OffsetDateTime recordCreatedAt,
+        ClinicalProfileResponse clinicalProfile,
+        List<ClinicalProfileResponse> clinicalProfileHistory,
         List<AttentionResponse> attentions
 ) {
 
     public record PatientSummary(String id, String fullName, EstadoPaciente status, OffsetDateTime registeredAt) {
     }
+    public record ClinicalProfileResponse(String id, String allergies, String relevantConditions,
+                                          String currentMedications, String dentalHistory,
+                                          String authorAccountId, String authorName, OffsetDateTime recordedAt) {}
 }

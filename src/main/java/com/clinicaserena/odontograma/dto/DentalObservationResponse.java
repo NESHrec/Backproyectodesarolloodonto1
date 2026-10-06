@@ -9,6 +9,7 @@ public record DentalObservationResponse(
         String practitionerId,
         String recordedByAccountId,
         int toothNumber,
+        String surface,
         String observation,
         OffsetDateTime recordedAt
 ) {

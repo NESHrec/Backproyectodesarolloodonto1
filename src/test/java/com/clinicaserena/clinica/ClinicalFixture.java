@@ -113,11 +113,11 @@ public final class ClinicalFixture {
         // V10 protege el historial contra UPDATE y DELETE. Las pruebas usan una base
         // aislada, por lo que vaciamos las dos tablas completas sin debilitar los triggers.
         jdbc.execute("TRUNCATE TABLE intenciones_pago_recepcion, pagos_citas, cargos_citas_auditoria");
-        jdbc.update("DELETE FROM receta_items WHERE atencion_id IN (SELECT id FROM atenciones_clinicas WHERE cita_id IN "
-                + appointmentsIn + " OR paciente_id IN (?, ?))", concat(APPOINTMENTS, PATIENT_X, PATIENT_Y));
-        jdbc.update("DELETE FROM atenciones_clinicas WHERE cita_id IN " + appointmentsIn + " OR paciente_id IN (?, ?)",
-                concat(APPOINTMENTS, PATIENT_X, PATIENT_Y));
-        jdbc.update("DELETE FROM expedientes_clinicos WHERE paciente_id IN (?, ?)", PATIENT_X, PATIENT_Y);
+        // La inmutabilidad bloquea DELETE fila a fila. Solo el fixture, sobre la base
+        // aislada de pruebas, usa TRUNCATE para reiniciar datos sintéticos entre casos.
+        jdbc.execute("DO $$ BEGIN IF to_regclass('adendas_atencion') IS NOT NULL THEN "
+                + "EXECUTE 'TRUNCATE TABLE adendas_atencion, versiones_perfil_clinico, receta_items, atenciones_clinicas, expedientes_clinicos'; "
+                + "ELSE EXECUTE 'TRUNCATE TABLE receta_items, atenciones_clinicas, expedientes_clinicos'; END IF; END $$");
         jdbc.update("DELETE FROM historial_vinculacion_medico WHERE cuenta_personal_id IN " + staffIn, STAFF.toArray());
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN " + staffIn, STAFF.toArray());
         jdbc.update("UPDATE cuentas_personal SET medico_id = NULL, medico_vinculado_en = NULL, medico_vinculado_por = NULL "

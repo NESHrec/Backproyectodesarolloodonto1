@@ -88,9 +88,16 @@ class ControlledClockBillingIntegrationTest {
                 jdbc.execute("ALTER TABLE pagos_citas ENABLE TRIGGER trg_pagos_citas_inmutables");
                 jdbc.execute("ALTER TABLE cargos_citas_auditoria ENABLE TRIGGER trg_cargos_citas_auditoria_inmutables");
             }
-            jdbc.update("DELETE FROM receta_items WHERE atencion_id IN "
-                    + "(SELECT id FROM atenciones_clinicas WHERE cita_id = ?)", appointmentId);
-            jdbc.update("DELETE FROM atenciones_clinicas WHERE cita_id = ?", appointmentId);
+            jdbc.execute("ALTER TABLE receta_items DISABLE TRIGGER trg_receta_items_inmutables");
+            jdbc.execute("ALTER TABLE atenciones_clinicas DISABLE TRIGGER trg_atenciones_clinicas_inmutables");
+            try {
+                jdbc.update("DELETE FROM receta_items WHERE atencion_id IN "
+                        + "(SELECT id FROM atenciones_clinicas WHERE cita_id = ?)", appointmentId);
+                jdbc.update("DELETE FROM atenciones_clinicas WHERE cita_id = ?", appointmentId);
+            } finally {
+                jdbc.execute("ALTER TABLE receta_items ENABLE TRIGGER trg_receta_items_inmutables");
+                jdbc.execute("ALTER TABLE atenciones_clinicas ENABLE TRIGGER trg_atenciones_clinicas_inmutables");
+            }
             jdbc.update("DELETE FROM expedientes_clinicos WHERE paciente_id = ?", TEST_PATIENT);
             jdbc.update("DELETE FROM citas WHERE id = ?", appointmentId);
         }

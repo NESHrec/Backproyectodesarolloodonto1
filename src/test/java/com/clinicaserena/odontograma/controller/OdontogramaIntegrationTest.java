@@ -81,16 +81,17 @@ class OdontogramaIntegrationTest {
         String token = login();
         mockMvc.perform(post("/api/v1/medico/citas/{id}/odontograma", APPOINTMENT_ID)
                         .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"toothNumber\":16,\"observation\":\"Restauración antigua observada\"}"))
+                        .content("{\"toothNumber\":55,\"surface\":\"OCLUSAL\",\"observation\":\"Restauración temporal observada\"}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.patientId").value(PATIENT_ID))
                 .andExpect(jsonPath("$.appointmentId").value(APPOINTMENT_ID));
         mockMvc.perform(get("/api/v1/medico/pacientes/{id}/odontograma", PATIENT_ID)
                         .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.observations[0].toothNumber").value(16))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.observations[0].toothNumber").value(55))
+                .andExpect(jsonPath("$.observations[0].surface").value("OCLUSAL"))
                 .andExpect(jsonPath("$.observations[0].recordedByAccountId").value(DOCTOR_ID));
         mockMvc.perform(post("/api/v1/medico/citas/{id}/odontograma", APPOINTMENT_ID)
                         .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"toothNumber\":19,\"observation\":\"Pieza inválida\"}"))
+                        .content("{\"toothNumber\":19,\"surface\":\"OCLUSAL\",\"observation\":\"Pieza inválida\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("TOOTH_INVALID"));
         mockMvc.perform(get("/api/v1/medico/pacientes/{id}/odontograma", OTHER_PATIENT_ID)
                         .header("Authorization", "Bearer " + token))
@@ -130,7 +131,7 @@ class OdontogramaIntegrationTest {
             assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
             mockMvc.perform(post("/api/v1/medico/citas/{id}/odontograma", APPOINTMENT_ID)
                             .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"toothNumber\":16,\"observation\":\"No debe intercalarse\"}"))
+                            .content("{\"toothNumber\":16,\"surface\":\"VESTIBULAR\",\"observation\":\"No debe intercalarse\"}"))
                     .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("APPOINTMENT_NOT_DOCUMENTABLE"));
             completion.get(5, TimeUnit.SECONDS);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM observaciones_odontograma WHERE cita_id = ?", Integer.class, APPOINTMENT_ID)).isZero();

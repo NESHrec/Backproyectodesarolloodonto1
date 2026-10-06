@@ -16,10 +16,13 @@ public record AttentionResponse(
         String diagnosis,
         String treatmentPlan,
         OffsetDateTime recordedAt,
-        List<PrescriptionItemResponse> prescription
+        List<PrescriptionItemResponse> prescription,
+        List<AddendumResponse> addenda
 ) {
 
     public record PrescriptionItemResponse(int order, String medicine, String dose, String frequency,
                                            String duration, String instructions) {
     }
+    public record AddendumResponse(String id, String text, String reason, String authorAccountId,
+                                   String authorName, OffsetDateTime recordedAt) {}
 }

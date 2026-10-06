@@ -6,6 +6,8 @@ import com.clinicaserena.clinica.dto.ClinicalRecordResponse;
 import com.clinicaserena.clinica.dto.MedicalAppointmentDetailResponse;
 import com.clinicaserena.clinica.dto.MedicalAppointmentResponse;
 import com.clinicaserena.clinica.dto.RecordAttentionRequest;
+import com.clinicaserena.clinica.dto.CreateAddendumRequest;
+import com.clinicaserena.clinica.dto.UpdateClinicalProfileRequest;
 import com.clinicaserena.clinica.service.MedicalCareService;
 import com.clinicaserena.staff.security.StaffPrincipal;
 import jakarta.validation.Valid;
@@ -66,6 +68,20 @@ public class MedicalCareController {
                                                              Authentication authentication) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
                 .body(service.recordAttention(principal(authentication), appointmentId, request));
+    }
+
+    @PostMapping("/citas/{appointmentId}/expediente/perfil")
+    public ResponseEntity<ClinicalRecordResponse.ClinicalProfileResponse> updateProfile(@PathVariable String appointmentId,
+            @Valid @RequestBody UpdateClinicalProfileRequest request, Authentication authentication) {
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
+                .body(service.updateClinicalProfile(principal(authentication),appointmentId,request));
+    }
+
+    @PostMapping("/citas/{appointmentId}/atenciones/{attentionId}/adendas")
+    public ResponseEntity<AttentionResponse.AddendumResponse> addAddendum(@PathVariable String appointmentId,
+            @PathVariable String attentionId, @Valid @RequestBody CreateAddendumRequest request, Authentication authentication) {
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
+                .body(service.addAddendum(principal(authentication),appointmentId,attentionId,request));
     }
 
     private static StaffPrincipal principal(Authentication authentication) {

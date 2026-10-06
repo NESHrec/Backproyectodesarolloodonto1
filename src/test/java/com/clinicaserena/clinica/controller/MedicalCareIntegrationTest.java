@@ -363,6 +363,58 @@ class MedicalCareIntegrationTest {
         }
     }
 
+    @Test
+    void perfilClinicoVersionadoDerivaPacienteAutorYFechaYRechazaAccesoCruzado() throws Exception {
+        String one=login(mockMvc,objectMapper,"doctor.one@example.test");
+        String two=login(mockMvc,objectMapper,"doctor.two@example.test");
+        String body="{\"allergies\":\"Alergia sintética declarada\",\"relevantConditions\":\"Condición sintética\",\"currentMedications\":\"Ninguno declarado\",\"dentalHistory\":\"Control previo sintético\"}";
+        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body).header("Authorization","Bearer "+one))
+                .andExpect(status().isCreated()).andExpect(header().string(CACHE_CONTROL,"no-store"))
+                .andExpect(jsonPath("$.authorAccountId").value(DOCTOR_ONE)).andExpect(jsonPath("$.recordedAt").isString());
+        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body.replace("Condición sintética","Segunda versión sintética")).header("Authorization","Bearer "+one))
+                .andExpect(status().isCreated());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM versiones_perfil_clinico WHERE paciente_id=?",Integer.class,PATIENT_X)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM versiones_perfil_clinico WHERE paciente_id=? AND autor_personal_id=?",Integer.class,PATIENT_X,DOCTOR_ONE)).isEqualTo(2);
+        mockMvc.perform(get("/api/v1/medico/citas/{id}/expediente",APPT_X_ONE_PENDING).header("Authorization","Bearer "+one))
+                .andExpect(jsonPath("$.clinicalProfile.relevantConditions").value("Segunda versión sintética"))
+                .andExpect(jsonPath("$.clinicalProfileHistory",hasSize(2)));
+        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body).header("Authorization","Bearer "+two))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("APPOINTMENT_NOT_FOUND"));
+    }
+
+    @Test
+    void perfilYAdendasExigenSesionRolYVinculacionYConservanOriginal() throws Exception {
+        String one=login(mockMvc,objectMapper,"doctor.one@example.test");
+        mockMvc.perform(attention(APPT_X_ONE_PENDING,VALID_ATTENTION).header("Authorization","Bearer "+one)).andExpect(status().isCreated());
+        String attentionId=jdbc.queryForObject("SELECT id FROM atenciones_clinicas WHERE cita_id=?",String.class,APPT_X_ONE_PENDING);
+        String original=jdbc.queryForObject("SELECT diagnostico FROM atenciones_clinicas WHERE id=?",String.class,attentionId);
+        String path="/api/v1/medico/citas/"+APPT_X_ONE_PENDING+"/atenciones/"+attentionId+"/adendas";
+        String addendum="{\"text\":\"Aclaración sintética posterior\",\"reason\":\"Precisión clínica sintética\"}";
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum).header("Authorization","Bearer "+one))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.authorAccountId").value(DOCTOR_ONE));
+        assertThat(jdbc.queryForObject("SELECT diagnostico FROM atenciones_clinicas WHERE id=?",String.class,attentionId)).isEqualTo(original);
+        mockMvc.perform(get("/api/v1/medico/citas/{id}/expediente",APPT_X_ONE_PENDING).header("Authorization","Bearer "+one))
+                .andExpect(jsonPath("$.attentions[0].addenda[0].text").value("Aclaración sintética posterior"));
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum)).andExpect(status().isUnauthorized());
+        for(String email:List.of("admin.clinical@example.test","reception.clinical@example.test")){
+            String token=login(mockMvc,objectMapper,email);mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum).header("Authorization","Bearer "+token)).andExpect(status().isForbidden());
+        }
+        String unlinked=login(mockMvc,objectMapper,"doctor.unlinked@example.test");
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum).header("Authorization","Bearer "+unlinked)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("PRACTITIONER_LINK_REQUIRED"));
+    }
+
+    @Test
+    void perfilesAdendasAtencionesYRecetasSonInmutablesEnSql() throws Exception {
+        String one=login(mockMvc,objectMapper,"doctor.one@example.test");
+        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content("{\"allergies\":\"Dato sintético\"}").header("Authorization","Bearer "+one)).andExpect(status().isCreated());
+        mockMvc.perform(attention(APPT_X_ONE_PENDING,VALID_ATTENTION).header("Authorization","Bearer "+one)).andExpect(status().isCreated());
+        String attentionId=jdbc.queryForObject("SELECT id FROM atenciones_clinicas WHERE cita_id=?",String.class,APPT_X_ONE_PENDING);
+        mockMvc.perform(post("/api/v1/medico/citas/{cita}/atenciones/{attention}/adendas",APPT_X_ONE_PENDING,attentionId).contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"Aclaración sintética\",\"reason\":\"Motivo sintético\"}").header("Authorization","Bearer "+one)).andExpect(status().isCreated());
+        for(String sql:List.of("UPDATE versiones_perfil_clinico SET alergias='x'","DELETE FROM versiones_perfil_clinico","UPDATE adendas_atencion SET texto='xxx'","DELETE FROM adendas_atencion","UPDATE atenciones_clinicas SET diagnostico='xxx'","DELETE FROM atenciones_clinicas","UPDATE receta_items SET dosis='x'","DELETE FROM receta_items")){
+            assertThatThrownBy(()->jdbc.update(sql)).hasMessageContaining("CLINICAL_RECORD_IMMUTABLE");
+        }
+    }
+
     private void assertNoClinicalSideEffects(String appointment, String expectedStatus) {
         assertThat(countAttentions(appointment)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM receta_items r JOIN atenciones_clinicas a ON a.id = r.atencion_id "

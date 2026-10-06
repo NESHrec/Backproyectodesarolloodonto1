@@ -979,6 +979,16 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: No existe intención, o ya no puede aplicarse al saldo. }
 
+  /pacientes/me/expediente:
+    get:
+      tags: [Atención médica]
+      summary: Consulta el expediente del paciente autenticado
+      description: El paciente se deriva exclusivamente de PatientPrincipal; no acepta identificadores y es de solo lectura.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Expediente propio, con perfiles versionados, atenciones y adendas. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /medico/citas:
     get:
       tags: [Atención médica]
@@ -1197,6 +1207,40 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /medico/citas/{appointmentId}/expediente/perfil:
+    post:
+      tags: [Atención médica]
+      summary: Agrega una versión inmutable del perfil clínico explícito
+      description: Solo MEDICO vinculado a la cita. Paciente, autor y fecha se derivan en Spring; cada llamada inserta una versión.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/AppointmentId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/UpdateClinicalProfileRequest" } } }
+      responses:
+        "201": { description: Versión creada. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /medico/citas/{appointmentId}/atenciones/{attentionId}/adendas:
+    post:
+      tags: [Atención médica]
+      summary: Agrega una adenda inmutable a una atención propia
+      description: Spring valida el profesional de la cita y deriva autor y fecha. UPDATE y DELETE están bloqueados por trigger.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/AppointmentId"
+        - { name: attentionId, in: path, required: true, schema: { type: string, maxLength: 36 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateAddendumRequest" } } }
+      responses:
+        "201": { description: Adenda creada. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /medico/pacientes/{patientId}/odontograma:
     get:
       tags: [Atención médica]
@@ -1229,10 +1273,8 @@ paths:
       summary: Registra una observación dental en una cita propia
       description: |
         Requiere MEDICO vinculado a la cita, hora ya iniciada y llegada registrada por
-        recepción. La pieza usa numeración FDI adulta (11–18, 21–28, 31–38, 41–48).
-        Solo se insertan registros inmutables: esta fase no edita ni borra observaciones,
-        no sobrescribe atenciones o recetas y no incluye capacidades avanzadas de planos,
-        imágenes, superficies o tratamientos estructurados.
+        recepción. Admite numeración FDI permanente y temporal y una superficie válida.
+        Solo se insertan registros inmutables; el historial V12 sin superficie se conserva.
       security:
         - bearerAuth: []
       operationId: recordDentalObservation
@@ -1613,6 +1655,8 @@ components:
             registeredAt: { type: string, format: date-time }
         recordId: { type: string, nullable: true }
         recordCreatedAt: { type: string, format: date-time, nullable: true }
+        clinicalProfile: { $ref: "#/components/schemas/ClinicalProfile", nullable: true }
+        clinicalProfileHistory: { type: array, items: { $ref: "#/components/schemas/ClinicalProfile" } }
         attentions:
           type: array
           items: { $ref: "#/components/schemas/Attention" }
@@ -1642,7 +1686,7 @@ components:
         instructions: { type: string, maxLength: 500, nullable: true }
     Attention:
       type: object
-      required: [id, appointmentId, practitionerId, authorAccountId, reason, diagnosis, recordedAt, prescription]
+      required: [id, appointmentId, practitionerId, authorAccountId, reason, diagnosis, recordedAt, prescription, addenda]
       properties:
         id: { type: string }
         appointmentId: { type: string }
@@ -1668,6 +1712,46 @@ components:
               frequency: { type: string }
               duration: { type: string }
               instructions: { type: string, nullable: true }
+        addenda:
+          type: array
+          items: { $ref: "#/components/schemas/Addendum" }
+    Addendum:
+      type: object
+      required: [id, text, reason, authorAccountId, recordedAt]
+      properties:
+        id: { type: string }
+        text: { type: string }
+        reason: { type: string }
+        authorAccountId: { type: string }
+        authorName: { type: string, nullable: true }
+        recordedAt: { type: string, format: date-time }
+    CreateAddendumRequest:
+      type: object
+      additionalProperties: false
+      required: [text, reason]
+      properties:
+        text: { type: string, minLength: 3, maxLength: 2000 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    UpdateClinicalProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        allergies: { type: string, maxLength: 2000, nullable: true }
+        relevantConditions: { type: string, maxLength: 2000, nullable: true }
+        currentMedications: { type: string, maxLength: 2000, nullable: true }
+        dentalHistory: { type: string, maxLength: 2000, nullable: true }
+    ClinicalProfile:
+      type: object
+      required: [id, authorAccountId, recordedAt]
+      properties:
+        id: { type: string }
+        allergies: { type: string, nullable: true }
+        relevantConditions: { type: string, nullable: true }
+        currentMedications: { type: string, nullable: true }
+        dentalHistory: { type: string, nullable: true }
+        authorAccountId: { type: string }
+        authorName: { type: string, nullable: true }
+        recordedAt: { type: string, format: date-time }
     ReceptionAppointment:
       type: object
       required: [id, patientId, practitionerId, specialtyId, scheduledAt, status]
@@ -2045,9 +2129,10 @@ components:
 
     RecordDentalObservationRequest:
       type: object
-      required: [toothNumber, observation]
+      required: [toothNumber, surface, observation]
       properties:
-        toothNumber: { type: integer, description: Numeración FDI adulta válida. }
+        toothNumber: { type: integer, description: Numeración FDI permanente o temporal válida. }
+        surface: { type: string, enum: [MESIAL, DISTAL, VESTIBULAR, LINGUAL, PALATINA, OCLUSAL, INCISAL] }
         observation: { type: string, minLength: 1, maxLength: 500 }
 
     DentalObservation:
@@ -2060,6 +2145,7 @@ components:
         practitionerId: { type: string }
         recordedByAccountId: { type: string }
         toothNumber: { type: integer }
+        surface: { type: string, nullable: true, description: Nulo solo en registros históricos V12. }
         observation: { type: string }
         recordedAt: { type: string, format: date-time }
 

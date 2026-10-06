@@ -6,7 +6,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record RecordDentalObservationRequest(
-        @Min(11) @Max(48) int toothNumber,
+        @Min(11) @Max(85) int toothNumber,
+        @NotBlank @Size(max = 12) String surface,
         @NotBlank @Size(max = 500) String observation
 ) {
 }

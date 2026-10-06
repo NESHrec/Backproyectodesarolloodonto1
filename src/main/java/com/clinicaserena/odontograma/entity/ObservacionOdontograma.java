@@ -33,6 +33,9 @@ public class ObservacionOdontograma {
     @Column(name = "pieza_dental", nullable = false, updatable = false)
     private short piezaDental;
 
+    @Column(length = 12, updatable = false)
+    private String superficie;
+
     @Column(length = 500, nullable = false, updatable = false)
     private String observacion;
 
@@ -43,7 +46,7 @@ public class ObservacionOdontograma {
     }
 
     public static ObservacionOdontograma registrar(String id, String pacienteId, String citaId, String medicoId,
-                                                   String autorPersonalId, short piezaDental, String observacion,
+                                                   String autorPersonalId, short piezaDental, String superficie, String observacion,
                                                    OffsetDateTime registradaEn) {
         ObservacionOdontograma record = new ObservacionOdontograma();
         record.id = id;
@@ -52,6 +55,7 @@ public class ObservacionOdontograma {
         record.medicoId = medicoId;
         record.autorPersonalId = autorPersonalId;
         record.piezaDental = piezaDental;
+        record.superficie = superficie;
         record.observacion = observacion;
         record.registradaEn = registradaEn;
         return record;
@@ -63,6 +67,7 @@ public class ObservacionOdontograma {
     public String getMedicoId() { return medicoId; }
     public String getAutorPersonalId() { return autorPersonalId; }
     public short getPiezaDental() { return piezaDental; }
+    public String getSuperficie() { return superficie; }
     public String getObservacion() { return observacion; }
     public OffsetDateTime getRegistradaEn() { return registradaEn; }
 }

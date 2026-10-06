@@ -15,18 +15,25 @@ import com.clinicaserena.clinica.dto.MedicalAppointmentDetailResponse;
 import com.clinicaserena.clinica.dto.MedicalAppointmentResponse;
 import com.clinicaserena.clinica.dto.MedicalAppointmentResponse.AttentionBlocker;
 import com.clinicaserena.clinica.dto.RecordAttentionRequest;
+import com.clinicaserena.clinica.dto.CreateAddendumRequest;
+import com.clinicaserena.clinica.dto.UpdateClinicalProfileRequest;
+import com.clinicaserena.clinica.entity.AdendaAtencion;
+import com.clinicaserena.clinica.entity.VersionPerfilClinico;
 import com.clinicaserena.clinica.entity.AtencionClinica;
 import com.clinicaserena.clinica.entity.ExpedienteClinico;
 import com.clinicaserena.clinica.entity.RecetaItem;
 import com.clinicaserena.clinica.repository.AtencionClinicaRepository;
 import com.clinicaserena.clinica.repository.ExpedienteClinicoRepository;
 import com.clinicaserena.clinica.repository.RecetaItemRepository;
+import com.clinicaserena.clinica.repository.AdendaAtencionRepository;
+import com.clinicaserena.clinica.repository.VersionPerfilClinicoRepository;
 import com.clinicaserena.common.exception.ApiException;
 import com.clinicaserena.staff.entity.CuentaPersonal;
 import com.clinicaserena.staff.entity.EstadoCuentaPersonal;
 import com.clinicaserena.staff.entity.RolPersonal;
 import com.clinicaserena.staff.repository.CuentaPersonalRepository;
 import com.clinicaserena.staff.security.StaffPrincipal;
+import com.clinicaserena.auth.security.PatientPrincipal;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -65,12 +72,15 @@ public class MedicalCareService {
     private final ExpedienteClinicoRepository expedienteRepository;
     private final AtencionClinicaRepository atencionRepository;
     private final RecetaItemRepository recetaRepository;
+    private final AdendaAtencionRepository adendaRepository;
+    private final VersionPerfilClinicoRepository perfilRepository;
     private final Clock clock;
 
     public MedicalCareService(CuentaPersonalRepository staffRepository, CitaRepository citaRepository,
                               PacienteRepository pacienteRepository, CuentaPacienteRepository cuentaPacienteRepository,
                               MedicoRepository medicoRepository, ExpedienteClinicoRepository expedienteRepository,
                               AtencionClinicaRepository atencionRepository, RecetaItemRepository recetaRepository,
+                              AdendaAtencionRepository adendaRepository, VersionPerfilClinicoRepository perfilRepository,
                               Clock clock) {
         this.clock = clock;
         this.staffRepository = staffRepository;
@@ -81,6 +91,8 @@ public class MedicalCareService {
         this.expedienteRepository = expedienteRepository;
         this.atencionRepository = atencionRepository;
         this.recetaRepository = recetaRepository;
+        this.adendaRepository = adendaRepository;
+        this.perfilRepository = perfilRepository;
     }
 
     @Transactional(readOnly = true)
@@ -114,17 +126,65 @@ public class MedicalCareService {
         String medicoId = requirePractitioner(principal);
         Cita cita = findOwnAppointment(citaId, medicoId);
         Paciente paciente = requirePatient(cita);
+        return buildClinicalRecord(paciente);
+    }
+
+    @Transactional(readOnly = true)
+    public ClinicalRecordResponse getOwnPatientRecord(PatientPrincipal principal) {
+        Paciente paciente=pacienteRepository.findById(principal.patientId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,"PATIENT_NOT_FOUND","El paciente no existe"));
+        return buildClinicalRecord(paciente);
+    }
+
+    private ClinicalRecordResponse buildClinicalRecord(Paciente paciente) {
         String fullName = cuentaPacienteRepository.findByPacienteIdIn(List.of(paciente.getId())).stream()
                 .findFirst().map(CuentaPaciente::getNombreCompleto).orElse(null);
         ExpedienteClinico expediente = expedienteRepository.findByPacienteId(paciente.getId()).orElse(null);
         List<AttentionResponse> attentions = toAttentionResponses(
                 atencionRepository.findByPacienteIdOrderByRegistradaEnDesc(paciente.getId()));
+        List<ClinicalRecordResponse.ClinicalProfileResponse> profiles = toProfileResponses(
+                perfilRepository.findByPacienteIdOrderByRegistradaEnDescSecuenciaDesc(paciente.getId()));
         return new ClinicalRecordResponse(
                 new ClinicalRecordResponse.PatientSummary(paciente.getId(), fullName, paciente.getEstado(),
                         paciente.getCreadoEn()),
                 expediente == null ? null : expediente.getId(),
                 expediente == null ? null : expediente.getCreadoEn(),
+                profiles.isEmpty() ? null : profiles.get(0), profiles,
                 attentions);
+    }
+
+    @Transactional
+    public ClinicalRecordResponse.ClinicalProfileResponse updateClinicalProfile(StaffPrincipal principal, String citaId,
+                                                                                 UpdateClinicalProfileRequest request) {
+        String medicoId = requirePractitioner(principal);
+        Cita cita = findOwnAppointment(citaId, medicoId);
+        Paciente paciente = requirePatient(cita);
+        String allergies=optional(request.allergies()), conditions=optional(request.relevantConditions());
+        String medications=optional(request.currentMedications()), history=optional(request.dentalHistory());
+        if (allergies==null && conditions==null && medications==null && history==null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,"CLINICAL_PROFILE_EMPTY","Indica al menos un dato clínico");
+        }
+        OffsetDateTime now=OffsetDateTime.now(clock);
+        expedienteRepository.insertIfAbsent(UUID.randomUUID().toString(),paciente.getId(),now,principal.accountId());
+        ExpedienteClinico expediente=expedienteRepository.findByPacienteId(paciente.getId()).orElseThrow();
+        VersionPerfilClinico saved=perfilRepository.saveAndFlush(VersionPerfilClinico.registrar(UUID.randomUUID().toString(),
+                expediente.getId(),paciente.getId(),allergies,conditions,medications,history,principal.accountId(),now));
+        return toProfileResponses(List.of(saved)).get(0);
+    }
+
+    @Transactional
+    public AttentionResponse.AddendumResponse addAddendum(StaffPrincipal principal, String appointmentId,
+                                                           String attentionId, CreateAddendumRequest request) {
+        String medicoId=requirePractitioner(principal);
+        Cita cita=findOwnAppointment(appointmentId,medicoId);
+        AtencionClinica attention=atencionRepository.findById(attentionId)
+                .filter(a -> a.getCitaId().equals(cita.getId()) && a.getMedicoId().equals(medicoId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,"ATTENTION_NOT_FOUND","La atención no existe"));
+        String text=request.text().trim(), reason=request.reason().trim();
+        if(text.length()<3 || reason.length()<3) throw new ApiException(HttpStatus.BAD_REQUEST,"VALIDATION_ERROR","Texto y motivo son obligatorios");
+        AdendaAtencion saved=adendaRepository.saveAndFlush(AdendaAtencion.registrar(UUID.randomUUID().toString(),attention.getId(),text,reason,principal.accountId(),OffsetDateTime.now(clock)));
+        return new AttentionResponse.AddendumResponse(saved.getId(),saved.getTexto(),saved.getMotivo(),saved.getAutorPersonalId(),
+                staffRepository.findById(saved.getAutorPersonalId()).map(CuentaPersonal::getNombreCompleto).orElse(null),saved.getRegistradaEn());
     }
 
     @Transactional
@@ -254,12 +314,25 @@ public class MedicalCareService {
                 .stream().collect(Collectors.toMap(CuentaPersonal::getId, CuentaPersonal::getNombreCompleto));
         Map<String, OffsetDateTime> scheduled = citaRepository.findAllById(ids(atenciones, AtencionClinica::getCitaId))
                 .stream().collect(Collectors.toMap(Cita::getId, Cita::getProgramadaEn));
+        Map<String,List<AdendaAtencion>> addenda=adendaRepository.findByAtencionIdInOrderByRegistradaEnAscIdAsc(ids(atenciones,AtencionClinica::getId))
+                .stream().collect(Collectors.groupingBy(AdendaAtencion::getAtencionId));
+        Set<String> addendumAuthors=addenda.values().stream().flatMap(List::stream).map(AdendaAtencion::getAutorPersonalId).collect(Collectors.toSet());
+        Map<String,String> addendumAuthorNames=staffRepository.findAllById(addendumAuthors).stream().collect(Collectors.toMap(CuentaPersonal::getId,CuentaPersonal::getNombreCompleto));
         return atenciones.stream().map(atencion -> new AttentionResponse(atencion.getId(), atencion.getCitaId(),
                 scheduled.get(atencion.getCitaId()), atencion.getMedicoId(), practitioners.get(atencion.getMedicoId()),
                 atencion.getAutorPersonalId(), authors.get(atencion.getAutorPersonalId()),
                 atencion.getMotivoConsulta(), atencion.getHallazgos(), atencion.getDiagnostico(),
                 atencion.getPlanTratamiento(), atencion.getRegistradaEn(),
-                items.getOrDefault(atencion.getId(), List.of()))).toList();
+                items.getOrDefault(atencion.getId(), List.of()), addenda.getOrDefault(atencion.getId(),List.of()).stream()
+                    .map(a -> new AttentionResponse.AddendumResponse(a.getId(),a.getTexto(),a.getMotivo(),a.getAutorPersonalId(),addendumAuthorNames.get(a.getAutorPersonalId()),a.getRegistradaEn())).toList())).toList();
+    }
+
+    private List<ClinicalRecordResponse.ClinicalProfileResponse> toProfileResponses(List<VersionPerfilClinico> versions) {
+        Map<String,String> names=staffRepository.findAllById(ids(versions,VersionPerfilClinico::getAutorPersonalId)).stream()
+                .collect(Collectors.toMap(CuentaPersonal::getId,CuentaPersonal::getNombreCompleto));
+        return versions.stream().map(v -> new ClinicalRecordResponse.ClinicalProfileResponse(v.getId(),v.getAlergias(),
+                v.getCondicionesRelevantes(),v.getMedicamentosActuales(),v.getAntecedentesOdontologicos(),v.getAutorPersonalId(),
+                names.get(v.getAutorPersonalId()),v.getRegistradaEn())).toList();
     }
 
     private Map<String, String> patientNames(Collection<String> pacienteIds) {

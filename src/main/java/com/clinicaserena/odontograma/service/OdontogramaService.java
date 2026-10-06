@@ -32,7 +32,10 @@ public class OdontogramaService {
 
     private static final Set<Integer> VALID_TEETH = Set.of(
             11,12,13,14,15,16,17,18,21,22,23,24,25,26,27,28,
-            31,32,33,34,35,36,37,38,41,42,43,44,45,46,47,48);
+            31,32,33,34,35,36,37,38,41,42,43,44,45,46,47,48,
+            51,52,53,54,55,61,62,63,64,65,71,72,73,74,75,81,82,83,84,85);
+    private static final Set<String> VALID_SURFACES = Set.of(
+            "MESIAL", "DISTAL", "VESTIBULAR", "LINGUAL", "PALATINA", "OCLUSAL", "INCISAL");
     private final CuentaPersonalRepository staffRepository;
     private final CitaRepository citaRepository;
     private final PacienteRepository pacienteRepository;
@@ -72,6 +75,10 @@ public class OdontogramaService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "TOOTH_INVALID", "La pieza dental no es válida");
         }
         String observation = request.observation().trim();
+        String surface = request.surface().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!VALID_SURFACES.contains(surface)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SURFACE_INVALID", "La superficie dental no es válida");
+        }
         if (observation.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "OBSERVATION_INVALID", "La observación es obligatoria");
         }
@@ -95,7 +102,7 @@ public class OdontogramaService {
         }
         ObservacionOdontograma saved = repository.saveAndFlush(ObservacionOdontograma.registrar(UUID.randomUUID().toString(),
                 cita.getPacienteId(), cita.getId(), practitionerId, principal.accountId(),
-                (short) request.toothNumber(), observation, now));
+                (short) request.toothNumber(), surface, observation, now));
         return toResponse(saved);
     }
 
@@ -111,7 +118,7 @@ public class OdontogramaService {
 
     private DentalObservationResponse toResponse(ObservacionOdontograma record) {
         return new DentalObservationResponse(record.getId(), record.getPacienteId(), record.getCitaId(),
-                record.getMedicoId(), record.getAutorPersonalId(), record.getPiezaDental(), record.getObservacion(),
+                record.getMedicoId(), record.getAutorPersonalId(), record.getPiezaDental(), record.getSuperficie(), record.getObservacion(),
                 record.getRegistradaEn());
     }
 
