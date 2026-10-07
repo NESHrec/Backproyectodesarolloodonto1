@@ -259,11 +259,30 @@ Los enlaces usan el fragmento `#token=`, que no forma parte de la solicitud HTTP
 inicial. Un reenvio limitado invalida enlaces de verificacion anteriores y nunca
 cambia anonimamente la contrasena.
 
-Para Swagger UI en desarrollo:
+### Swagger UI en desarrollo
+
+`docs/openapi.yaml` sigue siendo la única fuente editable del contrato. Maven lo
+copia al classpath durante el build y Swagger UI carga directamente ese recurso;
+no se genera ni mantiene una segunda especificación.
+
+Inicia el backend con el perfil `dev`:
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
+
+Con el puerto predeterminado `8080`, abre:
+
+- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+- Contrato YAML: `http://localhost:8080/openapi.yaml`
+- Ruta corta: `http://localhost:8080/swagger-ui.html` (redirige a la interfaz)
+
+Si `SERVER_PORT` cambia, sustituye `8080` por ese puerto. El botón **Authorize**
+acepta el token Bearer opaco emitido por los endpoints de login. Usa únicamente
+cuentas sintéticas locales y no guardes el token en archivos, logs o capturas.
+Swagger UI y el YAML solo son públicos con el perfil `dev`; sin ese perfil las
+rutas documentales permanecen denegadas. Los permisos de los endpoints de negocio
+no cambian.
 
 ## Seguridad
 

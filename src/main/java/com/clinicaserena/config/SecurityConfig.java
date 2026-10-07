@@ -8,6 +8,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -44,7 +46,8 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 public class SecurityConfig {
 
     private static final String[] PUBLIC_DOCUMENTATION_PATHS = {
-            "/v3/api-docs/**",
+            "/openapi.yaml",
+            "/v3/api-docs/swagger-config",
             "/swagger-ui/**",
             "/swagger-ui.html"
     };
@@ -53,8 +56,11 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             PatientBearerAuthenticationFilter bearerFilter,
-            StaffBearerAuthenticationFilter staffBearerFilter
+            StaffBearerAuthenticationFilter staffBearerFilter,
+            Environment environment
     ) throws Exception {
+        boolean developmentDocumentationEnabled = environment.acceptsProfiles(Profiles.of("dev"));
+
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
@@ -64,8 +70,8 @@ public class SecurityConfig {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(unauthorizedEntryPoint())
                         .accessDeniedHandler(forbiddenHandler()))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.GET,
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers(HttpMethod.GET,
                                 "/api/v1/health",
                                 "/api/v1/especialidades",
                                 "/api/v1/medicos",
@@ -94,10 +100,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/medico/**").hasRole("MEDICO")
                         .requestMatchers(HttpMethod.GET, "/api/v1/staff/agenda").hasAnyRole("ADMIN", "RECEPCION")
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/agenda/*/arrival").hasRole("RECEPCION")
-                        .requestMatchers("/api/v1/staff/billing/**").hasRole("RECEPCION")
-                        .requestMatchers(PUBLIC_DOCUMENTATION_PATHS).permitAll()
-                        .anyRequest().denyAll()
-                );
+                        .requestMatchers("/api/v1/staff/billing/**").hasRole("RECEPCION");
+                    if (developmentDocumentationEnabled) {
+                        auth.requestMatchers(HttpMethod.GET, PUBLIC_DOCUMENTATION_PATHS).permitAll();
+                    }
+                    auth.anyRequest().denyAll();
+                });
 
         http.addFilterBefore(staffBearerFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(bearerFilter, UsernamePasswordAuthenticationFilter.class);
