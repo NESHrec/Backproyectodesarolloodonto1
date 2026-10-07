@@ -7,6 +7,7 @@ import com.clinicaserena.auditoria.repository.BitacoraEventoRepository;
 import com.clinicaserena.common.exception.ApiException;
 import com.clinicaserena.staff.entity.RolPersonal;
 import com.clinicaserena.staff.security.StaffPrincipal;
+import com.clinicaserena.auth.security.PatientPrincipal;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -31,8 +32,22 @@ public class BitacoraService {
     @Transactional
     public void record(String actorAccountId, String action, String entityType, String entityId,
                        OffsetDateTime occurredAt) {
-        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), actorAccountId, action,
+        throw new IllegalStateException("Use record(StaffPrincipal, ...) so the actor role is audited");
+    }
+
+    @Transactional
+    public void record(StaffPrincipal actor, String action, String entityType, String entityId,
+                       OffsetDateTime occurredAt) {
+        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), actor.accountId(), "PERSONAL",
+                actor.accountId(), actor.role().name(), action,
                 entityType, entityId, occurredAt));
+    }
+
+    @Transactional
+    public void recordPatient(PatientPrincipal actor, String action, String entityType, String entityId,
+                              OffsetDateTime occurredAt) {
+        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), null, "PACIENTE",
+                actor.accountId(), "PACIENTE", action, entityType, entityId, occurredAt));
     }
 
     @Transactional(readOnly = true)
@@ -46,7 +61,8 @@ public class BitacoraService {
         Page<BitacoraEvento> events = repository.findAllByOrderByOcurridoEnDesc(
                 PageRequest.of(page, limit, Sort.by(Sort.Direction.DESC, "ocurridoEn")));
         List<AuditEventResponse> items = events.getContent().stream()
-                .map(event -> new AuditEventResponse(event.getId(), event.getActorPersonalId(), event.getAccion(),
+                .map(event -> new AuditEventResponse(event.getId(), event.getActorId(), event.getActorTipo(),
+                        event.getActorRol(), event.getAccion(),
                         event.getEntidadTipo(), event.getEntidadId(), event.getOcurridoEn()))
                 .toList();
         return new AuditEventPageResponse(items, page, limit, events.getTotalElements(), events.hasNext());

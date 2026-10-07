@@ -16,6 +16,7 @@ import com.clinicaserena.staff.entity.SesionPersonal;
 import com.clinicaserena.staff.repository.CuentaPersonalRepository;
 import com.clinicaserena.staff.repository.SesionPersonalRepository;
 import com.clinicaserena.staff.security.StaffPrincipal;
+import com.clinicaserena.auditoria.service.BitacoraService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -43,17 +44,20 @@ public class StaffAuthService {
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptGuard loginAttemptGuard;
     private final long sessionTtlSeconds;
+    private final BitacoraService audit;
 
     public StaffAuthService(CuentaPersonalRepository accountRepository,
                             SesionPersonalRepository sessionRepository,
                             PasswordEncoder passwordEncoder,
                             LoginAttemptGuard loginAttemptGuard,
-                            @Value("${clinica.auth.staff-session-ttl-seconds:1800}") long sessionTtlSeconds) {
+                            @Value("${clinica.auth.staff-session-ttl-seconds:1800}") long sessionTtlSeconds,
+                            BitacoraService audit) {
         this.accountRepository = accountRepository;
         this.sessionRepository = sessionRepository;
         this.passwordEncoder = passwordEncoder;
         this.loginAttemptGuard = loginAttemptGuard;
         this.sessionTtlSeconds = sessionTtlSeconds;
+        this.audit = audit;
     }
 
     @Transactional
@@ -96,7 +100,7 @@ public class StaffAuthService {
     }
 
     @Transactional
-    public StaffAccountResponse createAccount(CreateStaffAccountRequest request) {
+    public StaffAccountResponse createAccount(StaffPrincipal principal, CreateStaffAccountRequest request) {
         if (request.role() == RolPersonal.ADMIN) {
             throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_ACCOUNT_CREATION_FORBIDDEN",
                     "La cuenta inicial de administración requiere un procedimiento fuera del API");
@@ -109,7 +113,9 @@ public class StaffAuthService {
         try {
             CuentaPersonal account = CuentaPersonal.crear(UUID.randomUUID().toString(), email,
                     request.fullName().trim(), passwordEncoder.encode(request.password()), request.role(), now);
-            return StaffAccountResponse.of(accountRepository.saveAndFlush(account), null);
+            CuentaPersonal saved=accountRepository.saveAndFlush(account);
+            audit.record(principal,"STAFF_ACCOUNT_CREATED","CUENTA_PERSONAL",saved.getId(),now);
+            return StaffAccountResponse.of(saved, null);
         } catch (DataIntegrityViolationException collision) {
             throw new ApiException(HttpStatus.CONFLICT, "STAFF_ACCOUNT_EXISTS", "La cuenta ya existe");
         }

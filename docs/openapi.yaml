@@ -1505,6 +1505,66 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
 
+  /staff/medico/horarios/{blockId}:
+    patch:
+      tags: [Personal]
+      summary: Edita un bloque futuro propio sin citas asociadas
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: blockId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleBlockRequest" } } } }
+      responses:
+        "200": { description: Bloque actualizado. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { description: No es el médico propietario. }
+        "404": { description: Bloque inexistente. }
+        "409": { description: Fue retirado, tiene citas que impiden editar o se solapa. }
+        "422": { description: El bloque actual o el nuevo inicio no es futuro, o la duración es inválida. }
+    delete:
+      tags: [Personal]
+      summary: Retira lógicamente un bloque futuro propio conservando sus citas
+      description: El bloqueo pesimista serializa el retiro con reservas. Marca el bloque no disponible sin borrar ni modificar citas existentes.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: blockId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "204": { description: Retirado sin borrar el registro. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { description: No es el médico propietario. }
+        "404": { description: Bloque inexistente. }
+        "422": { description: Ya no es futuro. }
+
+  /staff/patients/{patientId}/link-requests:
+    post:
+      tags: [Personal]
+      summary: Inicia una vinculación tras verificar identidad presencialmente
+      description: No recibe ni busca cuentas por nombre, correo o teléfono. El código se muestra una sola vez, expira en diez minutos y solo se almacena su hash.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: patientId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [identityVerifiedInPerson], properties: { identityVerifiedInPerson: { type: boolean, enum: [true] } } } } }
+      responses:
+        "201": { description: Desafío creado. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Expediente inexistente. }
+        "409": { description: Expediente ya vinculado. }
+        "422": { description: Falta verificación presencial. }
+
+  /pacientes/me/administrative-link:
+    post:
+      tags: [Pacientes]
+      summary: Confirma una vinculación con la cuenta autenticada
+      description: La cuenta objetivo proviene de PatientPrincipal. El código es de un uso, tiene cinco intentos y nunca se registra.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [requestId, code], properties: { requestId: { type: string, format: uuid }, code: { type: string, pattern: "^[0-9]{8}$" } } } } }
+      responses:
+        "204": { description: Vinculación confirmada. }
+        "404": { description: Solicitud inexistente. }
+        "409": { description: No vigente, duplicada o expediente con dependencias. }
+        "410": { description: Código vencido. }
+        "422": { description: Código incorrecto. }
+
 components:
   securitySchemes:
     bearerAuth:

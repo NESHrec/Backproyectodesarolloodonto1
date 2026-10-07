@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import org.springframework.security.core.Authentication;
+import com.clinicaserena.staff.security.StaffPrincipal;
 
 @RestController
 @RequestMapping("/api/v1/staff/especialidades")
@@ -33,14 +35,14 @@ public class SpecialtyAdminController {
     }
 
     @PostMapping
-    public ResponseEntity<SpecialtyDto> create(@Valid @RequestBody UpsertSpecialtyRequest request) {
+    public ResponseEntity<SpecialtyDto> create(@Valid @RequestBody UpsertSpecialtyRequest request, Authentication authentication) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(service.create(request));
+                .body(service.create((StaffPrincipal)authentication.getPrincipal(), request));
     }
 
     @PatchMapping("/{id}")
     public ResponseEntity<SpecialtyDto> update(@PathVariable String id,
-                                               @Valid @RequestBody UpsertSpecialtyRequest request) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.update(id, request));
+                                               @Valid @RequestBody UpsertSpecialtyRequest request, Authentication authentication) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.update((StaffPrincipal)authentication.getPrincipal(), id, request));
     }
 }

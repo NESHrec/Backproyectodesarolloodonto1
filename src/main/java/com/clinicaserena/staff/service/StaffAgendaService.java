@@ -13,14 +13,18 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.staff.security.StaffPrincipal;
 
 @Service
 public class StaffAgendaService {
 
     private final CitaRepository citaRepository;
+    private final BitacoraService audit;
 
-    public StaffAgendaService(CitaRepository citaRepository) {
+    public StaffAgendaService(CitaRepository citaRepository, BitacoraService audit) {
         this.citaRepository = citaRepository;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -39,7 +43,7 @@ public class StaffAgendaService {
     }
 
     @Transactional
-    public ReceptionAppointmentResponse registerArrival(String appointmentId, String accountId) {
+    public ReceptionAppointmentResponse registerArrival(String appointmentId, StaffPrincipal principal) {
         Cita cita = citaRepository.findByIdForUpdate(appointmentId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "APPOINTMENT_NOT_FOUND", "La cita no existe"));
         if (cita.getLlegadaEn() != null) {
@@ -48,8 +52,11 @@ public class StaffAgendaService {
         if (cita.getEstado() == EstadoCita.CANCELADA || cita.getEstado() == EstadoCita.COMPLETADA) {
             throw new ApiException(HttpStatus.CONFLICT, "ARRIVAL_NOT_ALLOWED", "La cita no admite registro de llegada");
         }
-        cita.registrarLlegada(OffsetDateTime.now(ZoneOffset.UTC), accountId);
-        return toResponse(citaRepository.saveAndFlush(cita));
+        OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC);
+        cita.registrarLlegada(now, principal.accountId());
+        ReceptionAppointmentResponse response=toResponse(citaRepository.saveAndFlush(cita));
+        audit.record(principal,"APPOINTMENT_ARRIVAL_RECORDED","CITA",appointmentId,now);
+        return response;
     }
 
     private ReceptionAppointmentResponse toResponse(Cita cita) {

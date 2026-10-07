@@ -51,6 +51,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import com.clinicaserena.auditoria.service.BitacoraService;
 
 /**
  * Operaciones clínicas del profesional autenticado. El profesional se resuelve
@@ -75,13 +76,14 @@ public class MedicalCareService {
     private final AdendaAtencionRepository adendaRepository;
     private final VersionPerfilClinicoRepository perfilRepository;
     private final Clock clock;
+    private final BitacoraService audit;
 
     public MedicalCareService(CuentaPersonalRepository staffRepository, CitaRepository citaRepository,
                               PacienteRepository pacienteRepository, CuentaPacienteRepository cuentaPacienteRepository,
                               MedicoRepository medicoRepository, ExpedienteClinicoRepository expedienteRepository,
                               AtencionClinicaRepository atencionRepository, RecetaItemRepository recetaRepository,
                               AdendaAtencionRepository adendaRepository, VersionPerfilClinicoRepository perfilRepository,
-                              Clock clock) {
+                              Clock clock, BitacoraService audit) {
         this.clock = clock;
         this.staffRepository = staffRepository;
         this.citaRepository = citaRepository;
@@ -93,6 +95,7 @@ public class MedicalCareService {
         this.recetaRepository = recetaRepository;
         this.adendaRepository = adendaRepository;
         this.perfilRepository = perfilRepository;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -169,6 +172,7 @@ public class MedicalCareService {
         ExpedienteClinico expediente=expedienteRepository.findByPacienteId(paciente.getId()).orElseThrow();
         VersionPerfilClinico saved=perfilRepository.saveAndFlush(VersionPerfilClinico.registrar(UUID.randomUUID().toString(),
                 expediente.getId(),paciente.getId(),allergies,conditions,medications,history,principal.accountId(),now));
+        audit.record(principal,"CLINICAL_PROFILE_CORRECTION_ADDED","VERSION_PERFIL_CLINICO",saved.getId(),now);
         return toProfileResponses(List.of(saved)).get(0);
     }
 
@@ -182,7 +186,9 @@ public class MedicalCareService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,"ATTENTION_NOT_FOUND","La atención no existe"));
         String text=request.text().trim(), reason=request.reason().trim();
         if(text.length()<3 || reason.length()<3) throw new ApiException(HttpStatus.BAD_REQUEST,"VALIDATION_ERROR","Texto y motivo son obligatorios");
-        AdendaAtencion saved=adendaRepository.saveAndFlush(AdendaAtencion.registrar(UUID.randomUUID().toString(),attention.getId(),text,reason,principal.accountId(),OffsetDateTime.now(clock)));
+        OffsetDateTime now=OffsetDateTime.now(clock);
+        AdendaAtencion saved=adendaRepository.saveAndFlush(AdendaAtencion.registrar(UUID.randomUUID().toString(),attention.getId(),text,reason,principal.accountId(),now));
+        audit.record(principal,"CLINICAL_ADDENDUM_ADDED","ADENDA_ATENCION",saved.getId(),now);
         return new AttentionResponse.AddendumResponse(saved.getId(),saved.getTexto(),saved.getMotivo(),saved.getAutorPersonalId(),
                 staffRepository.findById(saved.getAutorPersonalId()).map(CuentaPersonal::getNombreCompleto).orElse(null),saved.getRegistradaEn());
     }

@@ -29,6 +29,7 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import com.clinicaserena.auditoria.service.BitacoraService;
 
 @Service
 public class ReceptionBillingService {
@@ -41,18 +42,20 @@ public class ReceptionBillingService {
     private final CargoCitaAuditoriaRepository cargoRepository;
     private final IntencionPagoRecepcionRepository intentRepository;
     private final Clock clock;
+    private final BitacoraService audit;
 
     public ReceptionBillingService(CitaRepository citaRepository, AtencionClinicaRepository atencionRepository,
                                    PagoCitaRepository pagoRepository,
                                    CargoCitaAuditoriaRepository cargoRepository,
                                    IntencionPagoRecepcionRepository intentRepository,
-                                   Clock clock) {
+                                   Clock clock, BitacoraService audit) {
         this.citaRepository = citaRepository;
         this.atencionRepository = atencionRepository;
         this.pagoRepository = pagoRepository;
         this.cargoRepository = cargoRepository;
         this.intentRepository = intentRepository;
         this.clock = clock;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -88,7 +91,9 @@ public class ReceptionBillingService {
         cargoRepository.saveAndFlush(CargoCitaAuditoria.registrar(UUID.randomUUID().toString(), cita.getId(),
                 cita.getMontoCentavos(), request.amount(), cita.getMoneda(), currency, principal.accountId(), now));
         cita.fijarCargo(request.amount(), currency, now);
-        return toResponse(citaRepository.saveAndFlush(cita));
+        BillingAppointmentResponse response=toResponse(citaRepository.saveAndFlush(cita));
+        audit.record(principal,"APPOINTMENT_CHARGE_SET","CITA",appointmentId,now);
+        return response;
     }
 
     @Transactional
@@ -120,9 +125,10 @@ public class ReceptionBillingService {
             throw new ApiException(HttpStatus.CONFLICT, "PAYMENT_EXCEEDS_BALANCE", "El pago excede el saldo pendiente");
         }
         try {
-            pagoRepository.saveAndFlush(PagoCita.registrar(UUID.randomUUID().toString(), cita.getId(),
+            PagoCita payment=pagoRepository.saveAndFlush(PagoCita.registrar(UUID.randomUUID().toString(), cita.getId(),
                     principal.accountId(), request.amount(), cita.getMoneda(), request.method(),
                     optional(request.reference()), request.idempotencyKey(), OffsetDateTime.now(clock)));
+            audit.record(principal,"APPOINTMENT_PAYMENT_RECORDED","PAGO_CITA",payment.getId(),OffsetDateTime.now(clock));
         } catch (DataIntegrityViolationException duplicate) {
             PagoCita concurrent = pagoRepository.findByCitaIdAndIdempotencyKey(cita.getId(), request.idempotencyKey())
                     .orElseThrow(() -> duplicate);

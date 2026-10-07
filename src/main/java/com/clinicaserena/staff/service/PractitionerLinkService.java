@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.staff.security.StaffPrincipal;
 
 /**
  * Asignación administrativa entre cuentas MEDICO y profesionales del catálogo.
@@ -33,12 +35,14 @@ public class PractitionerLinkService {
     private final CuentaPersonalRepository accountRepository;
     private final MedicoRepository medicoRepository;
     private final HistorialVinculacionMedicoRepository historyRepository;
+    private final BitacoraService audit;
 
     public PractitionerLinkService(CuentaPersonalRepository accountRepository, MedicoRepository medicoRepository,
-                                   HistorialVinculacionMedicoRepository historyRepository) {
+                                   HistorialVinculacionMedicoRepository historyRepository, BitacoraService audit) {
         this.accountRepository = accountRepository;
         this.medicoRepository = medicoRepository;
         this.historyRepository = historyRepository;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -54,7 +58,7 @@ public class PractitionerLinkService {
     }
 
     @Transactional
-    public StaffAccountResponse link(String adminAccountId, String accountId, String practitionerId) {
+    public StaffAccountResponse link(StaffPrincipal admin, String accountId, String practitionerId) {
         CuentaPersonal account = lockMedicalAccount(accountId);
         Medico medico = medicoRepository.findByIdForUpdate(practitionerId.trim())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PRACTITIONER_NOT_FOUND",
@@ -69,11 +73,12 @@ public class PractitionerLinkService {
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         String previous = account.getMedicoId();
-        account.vincularMedico(medico.getId(), adminAccountId, now);
+        account.vincularMedico(medico.getId(), admin.accountId(), now);
         try {
             accountRepository.saveAndFlush(account);
             historyRepository.saveAndFlush(HistorialVinculacionMedico.registrar(UUID.randomUUID().toString(),
-                    account.getId(), previous, medico.getId(), adminAccountId, now));
+                    account.getId(), previous, medico.getId(), admin.accountId(), now));
+            audit.record(admin,"STAFF_PRACTITIONER_LINKED","CUENTA_PERSONAL",accountId,now);
         } catch (DataIntegrityViolationException collision) {
             throw alreadyLinked();
         }
@@ -81,7 +86,7 @@ public class PractitionerLinkService {
     }
 
     @Transactional
-    public StaffAccountResponse unlink(String adminAccountId, String accountId) {
+    public StaffAccountResponse unlink(StaffPrincipal admin, String accountId) {
         CuentaPersonal account = lockMedicalAccount(accountId);
         String previous = account.getMedicoId();
         if (previous == null) {
@@ -92,7 +97,8 @@ public class PractitionerLinkService {
         account.desvincularMedico(now);
         accountRepository.saveAndFlush(account);
         historyRepository.saveAndFlush(HistorialVinculacionMedico.registrar(UUID.randomUUID().toString(),
-                account.getId(), previous, null, adminAccountId, now));
+                account.getId(), previous, null, admin.accountId(), now));
+        audit.record(admin,"STAFF_PRACTITIONER_UNLINKED","CUENTA_PERSONAL",accountId,now);
         return StaffAccountResponse.of(account, null);
     }
 

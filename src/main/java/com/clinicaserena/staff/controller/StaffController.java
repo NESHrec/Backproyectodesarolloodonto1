@@ -67,9 +67,9 @@ public class StaffController {
     }
 
     @PostMapping("/accounts")
-    public ResponseEntity<StaffAccountResponse> createAccount(@Valid @RequestBody CreateStaffAccountRequest request) {
+    public ResponseEntity<StaffAccountResponse> createAccount(@Valid @RequestBody CreateStaffAccountRequest request, Authentication authentication) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(authService.createAccount(request));
+                .body(authService.createAccount((StaffPrincipal)authentication.getPrincipal(), request));
     }
 
     @GetMapping("/accounts")
@@ -83,7 +83,7 @@ public class StaffController {
                                                                  Authentication authentication) {
         StaffPrincipal principal = (StaffPrincipal) authentication.getPrincipal();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(linkService.link(principal.accountId(), accountId, request.practitionerId()));
+                .body(linkService.link(principal, accountId, request.practitionerId()));
     }
 
     @DeleteMapping("/accounts/{accountId}/practitioner")
@@ -91,7 +91,7 @@ public class StaffController {
                                                                    Authentication authentication) {
         StaffPrincipal principal = (StaffPrincipal) authentication.getPrincipal();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(linkService.unlink(principal.accountId(), accountId));
+                .body(linkService.unlink(principal, accountId));
     }
 
     @GetMapping("/agenda")
@@ -109,6 +109,6 @@ public class StaffController {
             @PathVariable String appointmentId, Authentication authentication) {
         StaffPrincipal principal = (StaffPrincipal) authentication.getPrincipal();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(agendaService.registerArrival(appointmentId, principal.accountId()));
+                .body(agendaService.registerArrival(appointmentId, principal));
     }
 }

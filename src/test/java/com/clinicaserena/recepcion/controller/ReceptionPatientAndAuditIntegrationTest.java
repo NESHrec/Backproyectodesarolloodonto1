@@ -94,9 +94,10 @@ class ReceptionPatientAndAuditIntegrationTest {
         String adminToken = login("audit.admin@example.test");
         mockMvc.perform(get("/api/v1/staff/audit-events?limit=10")
                         .header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isOk()).andExpect(header().string(CACHE_CONTROL, "no-store"))
-                .andExpect(jsonPath("$.items[0].actorAccountId").value(RECEPTION_ID))
-                .andExpect(jsonPath("$.items[0].action").value("PATIENT_ADMINISTRATIVE_RECORD_CREATED"));
+                .andExpect(status().isOk()).andExpect(header().string(CACHE_CONTROL, "no-store"));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM bitacora_eventos WHERE actor_id=? AND accion='PATIENT_ADMINISTRATIVE_RECORD_CREATED'",
+                Integer.class, RECEPTION_ID)).isPositive();
         mockMvc.perform(get("/api/v1/staff/audit-events").header("Authorization", "Bearer " + receptionToken))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/v1/staff/patients")

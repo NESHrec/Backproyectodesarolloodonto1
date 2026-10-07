@@ -18,8 +18,17 @@ public class BitacoraEvento {
     @Column(length = 36, nullable = false, updatable = false)
     private String id;
 
-    @Column(name = "actor_personal_id", length = 36, nullable = false, updatable = false)
+    @Column(name = "actor_personal_id", length = 36, updatable = false)
     private String actorPersonalId;
+
+    @Column(name = "actor_tipo", length = 20, nullable = false, updatable = false)
+    private String actorTipo;
+
+    @Column(name = "actor_id", length = 36, nullable = false, updatable = false)
+    private String actorId;
+
+    @Column(name = "actor_rol", length = 20, nullable = false, updatable = false)
+    private String actorRol;
 
     @Column(length = 80, nullable = false, updatable = false)
     private String accion;
@@ -36,11 +45,15 @@ public class BitacoraEvento {
     protected BitacoraEvento() {
     }
 
-    public static BitacoraEvento registrar(String id, String actorPersonalId, String accion,
+    public static BitacoraEvento registrar(String id, String actorPersonalId, String actorTipo,
+                                           String actorId, String actorRol, String accion,
                                            String entidadTipo, String entidadId, OffsetDateTime ocurridoEn) {
         BitacoraEvento event = new BitacoraEvento();
         event.id = id;
         event.actorPersonalId = actorPersonalId;
+        event.actorTipo = actorTipo;
+        event.actorId = actorId;
+        event.actorRol = actorRol;
         event.accion = accion;
         event.entidadTipo = entidadTipo;
         event.entidadId = entidadId;
@@ -50,6 +63,9 @@ public class BitacoraEvento {
 
     public String getId() { return id; }
     public String getActorPersonalId() { return actorPersonalId; }
+    public String getActorTipo() { return actorTipo; }
+    public String getActorId() { return actorId; }
+    public String getActorRol() { return actorRol; }
     public String getAccion() { return accion; }
     public String getEntidadTipo() { return entidadTipo; }
     public String getEntidadId() { return entidadId; }

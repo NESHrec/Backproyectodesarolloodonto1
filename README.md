@@ -296,3 +296,10 @@ deshabilitado porque no autentica con cookies; la protección CSRF del flujo web
 aplica en el BFF de Next.js, antes de reenviar el Bearer al backend.
 
 No se añadieron usuarios fijos, cuentas de ejemplo ni permisos controlados por parámetros del cliente.
+
+## Ampliaciones administrativas
+
+- Recepción inicia una vinculación solo después de verificar presencialmente la identidad. El código de ocho dígitos se muestra una vez; se guarda solo SHA-256, vence en diez minutos y se bloquea al quinto intento.
+- El paciente confirma desde su sesión. La cuenta nunca se selecciona por nombre, correo o teléfono. Un expediente provisional con dependencias produce conflicto y no se fusiona automáticamente.
+- El médico puede editar o retirar únicamente bloques propios, futuros y sin citas. La presentación usa `America/Guatemala`; el retiro es lógico.
+- La bitácora append-only, paginada y solo ADMIN registra actor, rol, acción, entidad, identificador y fecha, sin secretos ni contenido clínico.

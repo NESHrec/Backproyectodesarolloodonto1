@@ -14,16 +14,22 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.staff.security.StaffPrincipal;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Service
 public class SpecialtyAdminService {
 
     private final EspecialidadRepository repository;
     private final CatalogoMapper mapper;
+    private final BitacoraService audit;
 
-    public SpecialtyAdminService(EspecialidadRepository repository, CatalogoMapper mapper) {
+    public SpecialtyAdminService(EspecialidadRepository repository, CatalogoMapper mapper, BitacoraService audit) {
         this.repository = repository;
         this.mapper = mapper;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -32,21 +38,22 @@ public class SpecialtyAdminService {
     }
 
     @Transactional
-    public SpecialtyDto create(UpsertSpecialtyRequest request) {
+    public SpecialtyDto create(StaffPrincipal principal, UpsertSpecialtyRequest request) {
         String name = normalizedName(request.name());
         String description = normalizedDescription(request.description());
         ensureValid(name, description);
         ensureUnique(name, null);
         try {
-            return mapper.toDto(repository.saveAndFlush(Especialidad.crear(
-                    UUID.randomUUID().toString(), name, description)));
+            Especialidad saved=repository.saveAndFlush(Especialidad.crear(UUID.randomUUID().toString(), name, description));
+            audit.record(principal,"SPECIALTY_CREATED","ESPECIALIDAD",saved.getId(),OffsetDateTime.now(ZoneOffset.UTC));
+            return mapper.toDto(saved);
         } catch (DataIntegrityViolationException collision) {
             throw duplicate();
         }
     }
 
     @Transactional
-    public SpecialtyDto update(String id, UpsertSpecialtyRequest request) {
+    public SpecialtyDto update(StaffPrincipal principal, String id, UpsertSpecialtyRequest request) {
         String name = normalizedName(request.name());
         String description = normalizedDescription(request.description());
         ensureValid(name, description);
@@ -56,7 +63,9 @@ public class SpecialtyAdminService {
         ensureUnique(name, id);
         try {
             specialty.actualizar(name, description);
-            return mapper.toDto(repository.saveAndFlush(specialty));
+            SpecialtyDto result=mapper.toDto(repository.saveAndFlush(specialty));
+            audit.record(principal,"SPECIALTY_UPDATED","ESPECIALIDAD",id,OffsetDateTime.now(ZoneOffset.UTC));
+            return result;
         } catch (DataIntegrityViolationException collision) {
             throw duplicate();
         }

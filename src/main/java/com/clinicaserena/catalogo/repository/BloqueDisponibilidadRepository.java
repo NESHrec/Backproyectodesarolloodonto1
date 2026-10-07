@@ -21,6 +21,7 @@ public interface BloqueDisponibilidadRepository extends JpaRepository<BloqueDisp
             where bloque.medico.id = :medicoId
               and bloque.inicio < :fin
               and bloque.fin > :inicio
+              and bloque.retiradoEn is null
             """)
     boolean existsOverlapping(
             @Param("medicoId") String medicoId,
@@ -57,4 +58,17 @@ public interface BloqueDisponibilidadRepository extends JpaRepository<BloqueDisp
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select bloque from BloqueDisponibilidad bloque where bloque.id = :id")
     Optional<BloqueDisponibilidad> findByIdForUpdate(@Param("id") String id);
+
+    @Query("select count(c) > 0 from Cita c where c.bloque.id = :blockId")
+    boolean hasAnyAppointment(@Param("blockId") String blockId);
+
+    @Query("""
+            select count(b) > 0 from BloqueDisponibilidad b
+            where b.medico.id = :medicoId and b.id <> :excludedId
+              and b.retiradoEn is null and b.inicio < :fin and b.fin > :inicio
+            """)
+    boolean existsOverlappingExcluding(@Param("medicoId") String medicoId,
+                                      @Param("excludedId") String excludedId,
+                                      @Param("inicio") OffsetDateTime inicio,
+                                      @Param("fin") OffsetDateTime fin);
 }

@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -252,6 +253,52 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
     }
 
     @Test
+    void editarBloqueRechazaNuevoInicioPasadoYAceptaInicioFuturoSegunClock() throws Exception {
+        String token = login("t2.doctor.a@example.test");
+        OffsetDateTime now = OffsetDateTime.of(2026, 10, 1, 15, 0, 0, 0, ZoneOffset.UTC);
+        String blockId = createBlock(token, now.plusDays(2), 30);
+
+        mockMvc.perform(patch("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + token).contentType("application/json")
+                        .content("{\"startAt\":\"" + now.minusMinutes(1) + "\",\"endAt\":\"" + now.plusMinutes(29) + "\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("SCHEDULE_START_IN_PAST"));
+        assertThat(jdbc.queryForObject("SELECT inicio FROM bloques_disponibilidad WHERE id=?", OffsetDateTime.class, blockId))
+                .isEqualTo(now.plusDays(2));
+
+        OffsetDateTime future = now.plusDays(3);
+        mockMvc.perform(patch("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + token).contentType("application/json")
+                        .content("{\"startAt\":\"" + future + "\",\"endAt\":\"" + future.plusMinutes(45) + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT inicio FROM bloques_disponibilidad WHERE id=?", OffsetDateTime.class, blockId))
+                .isEqualTo(future);
+    }
+
+    @Test
+    void retirarBloqueConCitaConservaCitaYLoExcluyeDeNuevasReservas() throws Exception {
+        String token = login("t2.doctor.a@example.test");
+        OffsetDateTime now = OffsetDateTime.of(2026, 10, 1, 15, 0, 0, 0, ZoneOffset.UTC);
+        OffsetDateTime start = now.plusDays(4);
+        String blockId = createBlock(token, start, 30);
+        String appointmentId = "a2400000-0000-0000-0000-000000000001";
+        jdbc.update("INSERT INTO citas(id,paciente_id,bloque_id,medico_id,especialidad_id,programada_en,estado,creada_en,actualizada_en) VALUES (?,?,?,?,?,?,'PENDIENTE',?,?)",
+                appointmentId, PATIENT, blockId, PRACTITIONER_A, SPECIALTY, start, now, now);
+        jdbc.update("UPDATE bloques_disponibilidad SET disponible=false WHERE id=?", blockId);
+
+        mockMvc.perform(delete("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + token)).andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM citas WHERE id=? AND bloque_id=? AND estado='PENDIENTE'",
+                Integer.class, appointmentId, blockId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT retirado_en IS NOT NULL AND disponible=false FROM bloques_disponibilidad WHERE id=?",
+                Boolean.class, blockId)).isTrue();
+        mockMvc.perform(get("/api/v1/medicos/{id}/disponibilidad", PRACTITIONER_A)
+                        .param("desde", start.toLocalDate().toString()).param("hasta", start.toLocalDate().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id=='" + blockId + "')]").isEmpty());
+    }
+
+    @Test
     void dosAltasConcurrentesDelMismoMedicoNoCreanSolapamiento() throws Exception {
         String token = login("t2.doctor.a@example.test");
         OffsetDateTime start = OffsetDateTime.now(ZoneOffset.UTC).plusDays(24).withHour(13).withMinute(0).withSecond(0).withNano(0);
@@ -300,8 +347,8 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN (?,?,?,?,?)", ADMIN, RECEPTION, DOCTOR_A, DOCTOR_B, UNLINKED);
         jdbc.update("UPDATE cuentas_personal SET medico_id=NULL, medico_vinculado_en=NULL, medico_vinculado_por=NULL WHERE id IN (?,?,?,?,?)",
                 ADMIN, RECEPTION, DOCTOR_A, DOCTOR_B, UNLINKED);
-        jdbc.update("DELETE FROM cuentas_personal WHERE id IN (?,?,?,?,?)", ADMIN, RECEPTION, DOCTOR_A, DOCTOR_B, UNLINKED);
         jdbc.update("DELETE FROM bloques_disponibilidad WHERE medico_id IN (?,?)", PRACTITIONER_A, PRACTITIONER_B);
+        jdbc.update("DELETE FROM cuentas_personal WHERE id IN (?,?,?,?,?)", ADMIN, RECEPTION, DOCTOR_A, DOCTOR_B, UNLINKED);
         jdbc.update("DELETE FROM medicos WHERE id IN (?,?) OR numero_colegiado LIKE 'T2-%'", PRACTITIONER_A, PRACTITIONER_B);
         jdbc.update("DELETE FROM especialidades WHERE id = ? OR nombre LIKE 'tanda clínica%' OR nombre LIKE 'Tanda Clínica%'", SPECIALTY);
         jdbc.update("DELETE FROM pacientes WHERE id = ?", PATIENT);

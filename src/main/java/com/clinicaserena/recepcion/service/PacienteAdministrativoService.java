@@ -87,7 +87,7 @@ public class PacienteAdministrativoService {
                 email, email, principal.accountId(), now);
         try {
             PacienteAdministrativo saved = repository.saveAndFlush(record);
-            bitacoraService.record(principal.accountId(), "PATIENT_ADMINISTRATIVE_RECORD_CREATED",
+            bitacoraService.record(principal, "PATIENT_ADMINISTRATIVE_RECORD_CREATED",
                     "PACIENTE_ADMINISTRATIVO", patientId, now);
             return new AdministrativePatientResponse(saved.getPacienteId(), saved.getNombreCompleto(), saved.getTelefono(),
                     saved.getEmailContacto(), "EXPEDIENTE_ADMINISTRATIVO", false, saved.getCreadoEn());

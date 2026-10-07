@@ -32,6 +32,12 @@ public class BloqueDisponibilidad {
     @Column(nullable = false)
     private boolean disponible;
 
+    @Column(name = "retirado_en")
+    private OffsetDateTime retiradoEn;
+
+    @Column(name = "retirado_por_personal_id", length = 36)
+    private String retiradoPorPersonalId;
+
     protected BloqueDisponibilidad() {
     }
 
@@ -63,7 +69,20 @@ public class BloqueDisponibilidad {
     }
 
     public boolean isDisponible() {
-        return disponible;
+        return disponible && retiradoEn == null;
+    }
+
+    public boolean isRetirado() { return retiradoEn != null; }
+
+    public void reprogramar(OffsetDateTime inicio, OffsetDateTime fin) {
+        this.inicio = Objects.requireNonNull(inicio);
+        this.fin = Objects.requireNonNull(fin);
+    }
+
+    public void retirar(String actorId, OffsetDateTime ahora) {
+        this.disponible = false;
+        this.retiradoPorPersonalId = Objects.requireNonNull(actorId);
+        this.retiradoEn = Objects.requireNonNull(ahora);
     }
 
     public void reservar() {
@@ -71,6 +90,6 @@ public class BloqueDisponibilidad {
     }
 
     public void liberar() {
-        this.disponible = true;
+        if (retiradoEn == null) this.disponible = true;
     }
 }
