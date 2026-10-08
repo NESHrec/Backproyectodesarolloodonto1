@@ -3,6 +3,7 @@ package com.clinicaserena.pagos.service;
 import com.clinicaserena.citas.entity.Cita;
 import com.clinicaserena.citas.entity.EstadoCita;
 import com.clinicaserena.citas.repository.CitaRepository;
+import com.clinicaserena.auth.repository.CuentaPacienteRepository;
 import com.clinicaserena.clinica.repository.AtencionClinicaRepository;
 import com.clinicaserena.common.exception.ApiException;
 import com.clinicaserena.pagos.dto.BillingAppointmentResponse;
@@ -37,6 +38,7 @@ public class ReceptionBillingService {
     private static final String CURRENCY = "GTQ";
 
     private final CitaRepository citaRepository;
+    private final CuentaPacienteRepository cuentaPacienteRepository;
     private final AtencionClinicaRepository atencionRepository;
     private final PagoCitaRepository pagoRepository;
     private final CargoCitaAuditoriaRepository cargoRepository;
@@ -44,12 +46,14 @@ public class ReceptionBillingService {
     private final Clock clock;
     private final BitacoraService audit;
 
-    public ReceptionBillingService(CitaRepository citaRepository, AtencionClinicaRepository atencionRepository,
+    public ReceptionBillingService(CitaRepository citaRepository, CuentaPacienteRepository cuentaPacienteRepository,
+                                   AtencionClinicaRepository atencionRepository,
                                    PagoCitaRepository pagoRepository,
                                    CargoCitaAuditoriaRepository cargoRepository,
                                    IntencionPagoRecepcionRepository intentRepository,
                                    Clock clock, BitacoraService audit) {
         this.citaRepository = citaRepository;
+        this.cuentaPacienteRepository = cuentaPacienteRepository;
         this.atencionRepository = atencionRepository;
         this.pagoRepository = pagoRepository;
         this.cargoRepository = cargoRepository;
@@ -272,7 +276,9 @@ public class ReceptionBillingService {
                 .stream().map(this::toPaymentResponse).toList();
         long paid = payments.stream().mapToLong(PaymentResponse::amount).sum();
         Long balance = cita.getMontoCentavos() == null ? null : cita.getMontoCentavos() - paid;
-        return new BillingAppointmentResponse(cita.getId(), cita.getPacienteId(), cita.getMedico().getId(),
+        String patientName = cuentaPacienteRepository.findByPacienteIdIn(List.of(cita.getPacienteId())).stream()
+                .findFirst().map(cuenta -> cuenta.getNombreCompleto()).orElse(null);
+        return new BillingAppointmentResponse(cita.getId(), cita.getPacienteId(), patientName, cita.getMedico().getId(),
                 cita.getEspecialidad().getId(), cita.getProgramadaEn(), cita.getEstado(),
                 atencionRepository.existsByCitaId(cita.getId()), cita.getMontoCentavos(), cita.getMoneda(),
                 paid, balance, cita.getMontoCentavos() != null, payments);

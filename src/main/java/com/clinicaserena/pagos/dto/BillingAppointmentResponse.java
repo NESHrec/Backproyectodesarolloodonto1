@@ -8,6 +8,7 @@ import java.util.List;
 public record BillingAppointmentResponse(
         String id,
         String patientId,
+        String patientName,
         String practitionerId,
         String specialtyId,
         OffsetDateTime scheduledAt,

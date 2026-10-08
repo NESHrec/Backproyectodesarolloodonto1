@@ -1880,11 +1880,12 @@ components:
         registeredAt: { type: string, format: date-time }
     BillingAppointment:
       type: object
-      required: [id, patientId, practitionerId, specialtyId, scheduledAt, status, attended,
+      required: [id, patientId, patientName, practitionerId, specialtyId, scheduledAt, status, attended,
                  currency, paidAmount, chargeDefined, payments]
       properties:
         id: { type: string }
         patientId: { type: string }
+        patientName: { type: string, nullable: true }
         practitionerId: { type: string }
         specialtyId: { type: string }
         scheduledAt: { type: string, format: date-time }

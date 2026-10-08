@@ -76,6 +76,7 @@ class ReceptionBillingIntegrationTest {
         mockMvc.perform(get("/api/v1/staff/billing/appointments/{id}", APPT_X_ONE_PENDING)
                         .header("Authorization", "Bearer " + reception))
                 .andExpect(status().isOk()).andExpect(header().string(CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.patientName").value("Paciente X sintético"))
                 .andExpect(jsonPath("$.attended").value(true))
                 .andExpect(jsonPath("$.chargeDefined").value(false));
 
