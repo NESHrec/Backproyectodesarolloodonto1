@@ -216,7 +216,7 @@ paths:
             schema: { $ref: "#/components/schemas/TokenRequest" }
       responses:
         "204": { description: Correo verificado. }
-        "400": { description: Token invalido, vencido o utilizado. }
+        "400": { description: "Token invalido, vencido o utilizado." }
   /auth/resend-verification:
     post:
       tags: [Auth]
@@ -264,7 +264,7 @@ paths:
                 password: { type: string, format: password, minLength: 8, maxLength: 72 }
       responses:
         "204": { description: Contrasena actualizada y sesiones revocadas. }
-        "400": { description: Token invalido, vencido o utilizado. }
+        "400": { description: "Token invalido, vencido o utilizado." }
 
   /auth/login:
     post:
@@ -977,7 +977,7 @@ paths:
               schema: { $ref: "#/components/schemas/BillingAppointment" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "409": { description: No existe intención, o ya no puede aplicarse al saldo. }
+        "409": { description: "No existe intención, o ya no puede aplicarse al saldo." }
 
   /pacientes/me/expediente:
     get:
@@ -986,8 +986,8 @@ paths:
       description: El paciente se deriva exclusivamente de PatientPrincipal; no acepta identificadores y es de solo lectura.
       security: [{ bearerAuth: [] }]
       responses:
-        "200": { description: Expediente propio, con perfiles versionados, atenciones y adendas. }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+        "200": { description: "Expediente propio, con perfiles versionados, atenciones y adendas." }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
   /medico/citas:
     get:
@@ -1219,8 +1219,8 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/UpdateClinicalProfileRequest" } } }
       responses:
         "201": { description: Versión creada. }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
   /medico/citas/{appointmentId}/atenciones/{attentionId}/adendas:
@@ -1237,8 +1237,8 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/CreateAddendumRequest" } } }
       responses:
         "201": { description: Adenda creada. }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
   /medico/pacientes/{patientId}/odontograma:
@@ -1295,7 +1295,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/MedicalForbidden" }
         "404": { $ref: "#/components/responses/AppointmentNotFound" }
-        "409": { description: Cita aún no iniciada, sin llegada o no documentable. }
+        "409": { description: "Cita aún no iniciada, sin llegada o no documentable." }
 
   /citas:
     post:
@@ -1517,8 +1517,8 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { description: No es el médico propietario. }
         "404": { description: Bloque inexistente. }
-        "409": { description: Fue retirado, tiene citas que impiden editar o se solapa. }
-        "422": { description: El bloque actual o el nuevo inicio no es futuro, o la duración es inválida. }
+        "409": { description: "Fue retirado, tiene citas que impiden editar o se solapa." }
+        "422": { description: "El bloque actual o el nuevo inicio no es futuro, o la duración es inválida." }
     delete:
       tags: [Personal]
       summary: Retira lógicamente un bloque futuro propio conservando sus citas
@@ -1561,7 +1561,7 @@ paths:
       responses:
         "204": { description: Vinculación confirmada. }
         "404": { description: Solicitud inexistente. }
-        "409": { description: No vigente, duplicada o expediente con dependencias. }
+        "409": { description: "No vigente, duplicada o expediente con dependencias." }
         "410": { description: Código vencido. }
         "422": { description: Código incorrecto. }
 
@@ -1595,6 +1595,11 @@ components:
           schema: { $ref: "#/components/schemas/ApiError" }
     ValidationError:
       description: Datos de entrada inválidos (`VALIDATION_ERROR`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: El recurso solicitado no existe.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ApiError" }
@@ -1698,6 +1703,7 @@ components:
       properties:
         appointment: { $ref: "#/components/schemas/MedicalAppointment" }
         attention:
+          type: object
           allOf:
             - $ref: "#/components/schemas/Attention"
           nullable: true
@@ -1861,6 +1867,7 @@ components:
           type: boolean
           description: Indica si la cuenta autenticada conserva una intención activa.
         intent:
+          type: object
           allOf:
             - $ref: "#/components/schemas/PaymentIntent"
           nullable: true
