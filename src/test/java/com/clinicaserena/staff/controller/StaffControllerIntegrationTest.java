@@ -102,6 +102,10 @@ class StaffControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"admin-new@example.test\",\"fullName\":\"Admin no permitido\",\"role\":\"ADMIN\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isForbidden());
+        String createdId = jdbc.queryForObject("SELECT id FROM cuentas_personal WHERE email_normalizado = ?", String.class, email);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM bitacora_eventos WHERE actor_id = ? AND actor_rol = 'ADMIN' AND accion = 'STAFF_ACCOUNT_CREATED' AND entidad_tipo = 'CUENTA_PERSONAL' AND entidad_id = ?",
+                Integer.class, ADMIN_ID, createdId)).isEqualTo(1);
         jdbc.update("DELETE FROM cuentas_personal WHERE email_normalizado = ?", email);
     }
 
@@ -162,6 +166,7 @@ class StaffControllerIntegrationTest {
     }
 
     private void cleanupFixture() {
+        jdbc.execute("TRUNCATE TABLE bitacora_eventos");
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN (?, ?, ?)", ADMIN_ID, RECEPTION_ID, MEDICO_ID);
         jdbc.update("UPDATE citas SET llegada_por_personal_id = NULL, llegada_en = NULL WHERE id = ?", APPOINTMENT_ID);
         jdbc.update("DELETE FROM citas WHERE id = ?", APPOINTMENT_ID);

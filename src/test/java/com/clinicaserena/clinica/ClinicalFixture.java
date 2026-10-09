@@ -110,6 +110,8 @@ public final class ClinicalFixture {
     public void cleanup() {
         String staffIn = in(STAFF);
         String appointmentsIn = in(APPOINTMENTS);
+        // La bitácora también es append-only; solo la base aislada de pruebas se reinicia con TRUNCATE.
+        jdbc.execute("TRUNCATE TABLE bitacora_eventos");
         // V10 protege el historial contra UPDATE y DELETE. Las pruebas usan una base
         // aislada, por lo que vaciamos las dos tablas completas sin debilitar los triggers.
         jdbc.execute("TRUNCATE TABLE intenciones_pago_recepcion, pagos_citas, cargos_citas_auditoria");

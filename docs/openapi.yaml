@@ -1186,12 +1186,13 @@ paths:
   /staff/audit-events:
     get:
       tags: [Personal]
-      summary: Consulta la bitácora persistida acotada
+      summary: Consulta la bitácora administrativa persistida
       description: |
-        Solo ADMIN. Esta primera versión registra `PATIENT_ADMINISTRATIVE_RECORD_CREATED`
-        emitido al crear un expediente administrativo desde recepción; no representa una
-        auditoría completa de todas las acciones del sistema. Devuelve actor, acción,
-        entidad y fecha, sin contraseñas, tokens ni contenido clínico.
+        Solo ADMIN. Registra las operaciones reales disponibles que requieren trazabilidad,
+        incluidas la creación de cuentas de personal, la creación y edición de especialidades,
+        la vinculación y desvinculación de profesionales, y otras operaciones persistentes
+        habilitadas en el sistema. Devuelve actor, rol, acción, recurso y fecha. Nunca incluye
+        contraseñas, tokens, cookies, contenido clínico ni datos sensibles innecesarios.
       security:
         - bearerAuth: []
       operationId: listAuditEvents
@@ -2180,8 +2181,11 @@ components:
       properties:
         id: { type: string }
         actorAccountId: { type: string }
-        action: { type: string, example: PATIENT_ADMINISTRATIVE_RECORD_CREATED }
-        entityType: { type: string, example: PACIENTE_ADMINISTRATIVO }
+        action:
+          type: string
+          description: Acción persistida, por ejemplo STAFF_ACCOUNT_CREATED, SPECIALTY_CREATED, SPECIALTY_UPDATED, STAFF_PRACTITIONER_LINKED o STAFF_PRACTITIONER_UNLINKED.
+          example: SPECIALTY_UPDATED
+        entityType: { type: string, example: ESPECIALIDAD }
         entityId: { type: string }
         occurredAt: { type: string, format: date-time }
 

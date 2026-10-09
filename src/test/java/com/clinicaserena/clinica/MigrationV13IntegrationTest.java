@@ -12,11 +12,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MigrationV13IntegrationTest {
     @Test
     void migraBaseVaciaYBaseV12ConObservacionHistoricaSinAlterarla() {
-        String host=System.getenv().getOrDefault("DB_HOST","localhost");
-        String port=System.getenv().getOrDefault("DB_PORT","5432");
-        String database=System.getenv().getOrDefault("DB_NAME","clinica_serena");
-        String user=System.getenv().getOrDefault("DB_USER","clinica_app");
-        String password=System.getenv().getOrDefault("DB_PASSWORD","");
+        String host=requiredTestDatabaseSetting("TEST_DB_HOST");
+        String port=requiredTestDatabaseSetting("TEST_DB_PORT");
+        String database=requiredTestDatabaseSetting("TEST_DB_NAME");
+        String user=requiredTestDatabaseSetting("TEST_DB_USER");
+        String password=requiredTestDatabaseSetting("TEST_DB_PASSWORD");
         String schema="migration_v13_"+UUID.randomUUID().toString().replace("-","");
         String url="jdbc:postgresql://"+host+":"+port+"/"+database+"?currentSchema="+schema;
         DriverManagerDataSource dataSource=new DriverManagerDataSource(url,user,password);
@@ -39,5 +39,13 @@ class MigrationV13IntegrationTest {
         } finally {
             Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).cleanDisabled(false).load().clean();
         }
+    }
+
+    private static String requiredTestDatabaseSetting(String name) {
+        String value=System.getenv(name);
+        if(value==null||value.isBlank()) {
+            throw new IllegalStateException(name+" is required; tests must use an isolated PostgreSQL database");
+        }
+        return value;
     }
 }

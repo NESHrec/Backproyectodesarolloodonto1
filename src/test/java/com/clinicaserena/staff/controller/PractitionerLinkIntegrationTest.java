@@ -99,6 +99,11 @@ class PractitionerLinkIntegrationTest {
                 + "FROM historial_vinculacion_medico WHERE cuenta_personal_id = ? ORDER BY realizado_en", String.class, DOCTOR_ONE);
         assertThat(history).containsExactly("->" + PRACTITIONER_ONE, PRACTITIONER_ONE + ">" + PRACTITIONER_TWO,
                 PRACTITIONER_TWO + ">-");
+        List<String> auditActions = jdbc.queryForList(
+                "SELECT accion FROM bitacora_eventos WHERE actor_id = ? AND entidad_id = ? ORDER BY ocurrido_en",
+                String.class, ADMIN, DOCTOR_ONE);
+        assertThat(auditActions).containsExactly("STAFF_PRACTITIONER_LINKED", "STAFF_PRACTITIONER_LINKED",
+                "STAFF_PRACTITIONER_UNLINKED");
         assertThatThrownBy(() -> jdbc.update("UPDATE historial_vinculacion_medico SET realizado_por = ? WHERE cuenta_personal_id = ?",
                 DOCTOR_TWO, DOCTOR_ONE)).hasMessageContaining("CLINICAL_RECORD_IMMUTABLE");
     }

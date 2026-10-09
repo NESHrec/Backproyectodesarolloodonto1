@@ -102,6 +102,13 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
                 "a2300000-0000-0000-0000-000000000003")).isEqualTo(specialtyId);
         mockMvc.perform(get("/api/v1/especialidades")).andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.id=='" + specialtyId + "')].name").value("tanda clínica editada"));
+        List<String> auditActions = jdbc.queryForList(
+                "SELECT accion FROM bitacora_eventos WHERE actor_id = ? AND entidad_id = ? ORDER BY ocurrido_en",
+                String.class, ADMIN, specialtyId);
+        assertThat(auditActions).containsExactly("SPECIALTY_CREATED", "SPECIALTY_UPDATED");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM bitacora_eventos WHERE entidad_id = ? AND entidad_tipo = 'ESPECIALIDAD' AND actor_rol = 'ADMIN'",
+                Integer.class, specialtyId)).isEqualTo(2);
     }
 
     @Test
@@ -343,6 +350,7 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
     }
 
     private void cleanupFixture() {
+        jdbc.execute("TRUNCATE TABLE bitacora_eventos");
         jdbc.update("DELETE FROM citas WHERE id = ?", "a2400000-0000-0000-0000-000000000001");
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN (?,?,?,?,?)", ADMIN, RECEPTION, DOCTOR_A, DOCTOR_B, UNLINKED);
         jdbc.update("UPDATE cuentas_personal SET medico_id=NULL, medico_vinculado_en=NULL, medico_vinculado_por=NULL WHERE id IN (?,?,?,?,?)",
