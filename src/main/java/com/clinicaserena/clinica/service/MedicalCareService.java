@@ -230,6 +230,7 @@ public class MedicalCareService {
             recetaRepository.saveAllAndFlush(items);
             cita.completar(now);
             citaRepository.saveAndFlush(cita);
+            audit.record(principal, "CLINICAL_ATTENTION_RECORDED", "ATENCION_CLINICA", atencion.getId(), now);
         } catch (DataIntegrityViolationException collision) {
             throw attentionAlreadyRecorded();
         }

@@ -1,7 +1,9 @@
 package com.clinicaserena.clinica.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.clinica.ClinicalFixture;
 import com.clinicaserena.clinica.MutableClock;
+import com.clinicaserena.staff.security.StaffPrincipal;
 import org.springframework.context.annotation.Import;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -15,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -37,6 +40,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -54,11 +62,13 @@ class MedicalCareIntegrationTest {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
     @Autowired MutableClock clock;
+    @MockitoSpyBean BitacoraService audit;
 
     private ClinicalFixture fixture;
 
     @BeforeEach
     void prepare() {
+        reset(audit);
         fixture = new ClinicalFixture(jdbc);
         fixture.create(passwordEncoder, true);
         clock.set(fixture.base().plusHours(CLOCK_OFFSET_HOURS).toInstant());
@@ -145,6 +155,13 @@ class MedicalCareIntegrationTest {
                 .isEqualTo("COMPLETADA");
         assertThat(jdbc.queryForObject("SELECT paciente_id FROM atenciones_clinicas WHERE cita_id = ?", String.class,
                 APPT_X_ONE_PENDING)).isEqualTo(PATIENT_X);
+        String attentionId = jdbc.queryForObject("SELECT id FROM atenciones_clinicas WHERE cita_id = ?", String.class,
+                APPT_X_ONE_PENDING);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'CLINICAL_ATTENTION_RECORDED' "
+                + "AND actor_id = ? AND entidad_tipo = 'ATENCION_CLINICA' AND entidad_id = ?", Integer.class,
+                DOCTOR_ONE, attentionId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?", Integer.class,
+                "%Diagnóstico sintético de prueba%")).isZero();
 
         mockMvc.perform(post("/api/v1/staff/auth/logout").header("Authorization", "Bearer " + one))
                 .andExpect(status().isNoContent());
@@ -361,6 +378,23 @@ class MedicalCareIntegrationTest {
         for (String appointment : List.of(APPT_X_ONE_FUTURE, APPT_Y_ONE_NO_ARRIVAL, APPT_X_ONE_PENDING, APPT_X_TWO_PENDING)) {
             assertThat(countAttentions(appointment)).isZero();
         }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'CLINICAL_ATTENTION_RECORDED'",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void falloDeBitacoraRevierteLaAtencionCompleta() throws Exception {
+        String one = login(mockMvc, objectMapper, "doctor.one@example.test");
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("CLINICAL_ATTENTION_RECORDED"),
+                        eq("ATENCION_CLINICA"), anyString(), any(OffsetDateTime.class));
+
+        mockMvc.perform(attention(APPT_X_ONE_PENDING, VALID_ATTENTION).header("Authorization", "Bearer " + one))
+                .andExpect(status().is5xxServerError());
+
+        assertNoClinicalSideEffects(APPT_X_ONE_PENDING, "PENDIENTE");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'CLINICAL_ATTENTION_RECORDED'",
+                Integer.class)).isZero();
     }
 
     @Test

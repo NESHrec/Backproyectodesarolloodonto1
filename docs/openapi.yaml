@@ -1095,7 +1095,9 @@ paths:
         expediente, ni cambia el estado de la cita. Si todas se cumplen, la cita pasa
         a `COMPLETADA` en la misma transacción. Autor, profesional, paciente y fecha
         se derivan del principal y de la cita. Existe una sola atención por cita y
-        las atenciones y recetas guardadas no admiten modificaciones.
+        las atenciones y recetas guardadas no admiten modificaciones. Al confirmar la
+        transacción se registra `CLINICAL_ATTENTION_RECORDED` con el identificador de
+        la atención, sin diagnóstico, receta ni otro texto clínico.
       security:
         - bearerAuth: []
       operationId: recordMedicalAttention
@@ -1276,6 +1278,8 @@ paths:
         Requiere MEDICO vinculado a la cita, hora ya iniciada y llegada registrada por
         recepción. Admite numeración FDI permanente y temporal y una superficie válida.
         Solo se insertan registros inmutables; el historial V12 sin superficie se conserva.
+        La misma transacción registra `DENTAL_OBSERVATION_RECORDED` con el identificador
+        de la observación, sin incluir el texto clínico.
       security:
         - bearerAuth: []
       operationId: recordDentalObservation
@@ -2183,7 +2187,7 @@ components:
         actorAccountId: { type: string }
         action:
           type: string
-          description: Acción persistida, por ejemplo STAFF_ACCOUNT_CREATED, SPECIALTY_CREATED, SPECIALTY_UPDATED, STAFF_PRACTITIONER_LINKED o STAFF_PRACTITIONER_UNLINKED.
+          description: Acción persistida, por ejemplo STAFF_ACCOUNT_CREATED, CLINICAL_ATTENTION_RECORDED o DENTAL_OBSERVATION_RECORDED.
           example: SPECIALTY_UPDATED
         entityType: { type: string, example: ESPECIALIDAD }
         entityId: { type: string }

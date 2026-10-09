@@ -1,5 +1,6 @@
 package com.clinicaserena.odontograma.service;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.auth.entity.CuentaPaciente;
 import com.clinicaserena.auth.repository.CuentaPacienteRepository;
 import com.clinicaserena.auth.repository.PacienteRepository;
@@ -42,16 +43,18 @@ public class OdontogramaService {
     private final CuentaPacienteRepository patientAccountRepository;
     private final ObservacionOdontogramaRepository repository;
     private final Clock clock;
+    private final BitacoraService audit;
 
     public OdontogramaService(CuentaPersonalRepository staffRepository, CitaRepository citaRepository,
                               PacienteRepository pacienteRepository, CuentaPacienteRepository patientAccountRepository,
-                              ObservacionOdontogramaRepository repository, Clock clock) {
+                              ObservacionOdontogramaRepository repository, Clock clock, BitacoraService audit) {
         this.staffRepository = staffRepository;
         this.citaRepository = citaRepository;
         this.pacienteRepository = pacienteRepository;
         this.patientAccountRepository = patientAccountRepository;
         this.repository = repository;
         this.clock = clock;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -103,6 +106,7 @@ public class OdontogramaService {
         ObservacionOdontograma saved = repository.saveAndFlush(ObservacionOdontograma.registrar(UUID.randomUUID().toString(),
                 cita.getPacienteId(), cita.getId(), practitionerId, principal.accountId(),
                 (short) request.toothNumber(), surface, observation, now));
+        audit.record(principal, "DENTAL_OBSERVATION_RECORDED", "OBSERVACION_ODONTOGRAMA", saved.getId(), now);
         return toResponse(saved);
     }
 

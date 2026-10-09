@@ -1,5 +1,7 @@
 package com.clinicaserena.odontograma.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.staff.security.StaffPrincipal;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -30,6 +33,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -50,9 +58,11 @@ class OdontogramaIntegrationTest {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
     @Autowired PlatformTransactionManager transactionManager;
+    @MockitoSpyBean BitacoraService audit;
 
     @BeforeEach
     void prepareFixture() {
+        reset(audit);
         cleanupFixture();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).withNano(0);
         String hash = passwordEncoder.encode(PASSWORD);
@@ -98,6 +108,13 @@ class OdontogramaIntegrationTest {
                 .andExpect(status().isNotFound());
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM observaciones_odontograma WHERE cita_id = ?", Integer.class, APPOINTMENT_ID)).isEqualTo(1);
+        String observationId = jdbc.queryForObject("SELECT id FROM observaciones_odontograma WHERE cita_id = ?",
+                String.class, APPOINTMENT_ID);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'DENTAL_OBSERVATION_RECORDED' "
+                + "AND actor_id = ? AND entidad_tipo = 'OBSERVACION_ODONTOGRAMA' AND entidad_id = ?", Integer.class,
+                DOCTOR_ID, observationId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?", Integer.class,
+                "%Restauración temporal observada%")).isZero();
     }
 
     @Test
@@ -135,9 +152,29 @@ class OdontogramaIntegrationTest {
                     .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("APPOINTMENT_NOT_DOCUMENTABLE"));
             completion.get(5, TimeUnit.SECONDS);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM observaciones_odontograma WHERE cita_id = ?", Integer.class, APPOINTMENT_ID)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'DENTAL_OBSERVATION_RECORDED'",
+                    Integer.class)).isZero();
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void falloDeBitacoraRevierteLaObservacionOdontologica() throws Exception {
+        String token = login();
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("DENTAL_OBSERVATION_RECORDED"),
+                        eq("OBSERVACION_ODONTOGRAMA"), anyString(), any(OffsetDateTime.class));
+
+        mockMvc.perform(post("/api/v1/medico/citas/{id}/odontograma", APPOINTMENT_ID)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"toothNumber\":16,\"surface\":\"VESTIBULAR\",\"observation\":\"Dato sintético reversible\"}"))
+                .andExpect(status().is5xxServerError());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM observaciones_odontograma WHERE cita_id = ?", Integer.class,
+                APPOINTMENT_ID)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'DENTAL_OBSERVATION_RECORDED'",
+                Integer.class)).isZero();
     }
 
     private String login() throws Exception {
@@ -150,6 +187,9 @@ class OdontogramaIntegrationTest {
 
     private void cleanupFixture() {
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN (?, ?)", ADMIN_ID, DOCTOR_ID);
+        jdbc.execute("ALTER TABLE bitacora_eventos DISABLE TRIGGER trg_bitacora_eventos_inmutables");
+        jdbc.update("DELETE FROM bitacora_eventos WHERE actor_id IN (?, ?)", ADMIN_ID, DOCTOR_ID);
+        jdbc.execute("ALTER TABLE bitacora_eventos ENABLE TRIGGER trg_bitacora_eventos_inmutables");
         jdbc.execute("ALTER TABLE observaciones_odontograma DISABLE TRIGGER trg_observaciones_odontograma_inmutables");
         jdbc.update("DELETE FROM observaciones_odontograma WHERE cita_id = ?", APPOINTMENT_ID);
         jdbc.execute("ALTER TABLE observaciones_odontograma ENABLE TRIGGER trg_observaciones_odontograma_inmutables");
