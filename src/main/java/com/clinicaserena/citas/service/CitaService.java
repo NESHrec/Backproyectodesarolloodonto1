@@ -2,6 +2,8 @@ package com.clinicaserena.citas.service;
 
 import com.clinicaserena.catalogo.entity.BloqueDisponibilidad;
 import com.clinicaserena.catalogo.repository.BloqueDisponibilidadRepository;
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.citas.dto.CitaDto;
 import com.clinicaserena.citas.dto.CrearCitaRequest;
 import com.clinicaserena.citas.entity.Cita;
@@ -23,10 +25,20 @@ public class CitaService {
     private final BloqueDisponibilidadRepository bloqueRepository;
     private final CitaRepository citaRepository;
     private final Clock clock;
-    public CitaService(BloqueDisponibilidadRepository bloqueRepository, CitaRepository citaRepository, Clock clock) {
+    private final BitacoraService audit;
+    public CitaService(BloqueDisponibilidadRepository bloqueRepository, CitaRepository citaRepository, Clock clock,
+                       BitacoraService audit) {
         this.bloqueRepository = bloqueRepository;
         this.citaRepository = citaRepository;
         this.clock = clock;
+        this.audit = audit;
+    }
+
+    @Transactional
+    public CitaDto reservar(PatientPrincipal principal, CrearCitaRequest request) {
+        CitaDto appointment = reservarPersistida(principal.patientId(), request);
+        audit.recordPatient(principal, "APPOINTMENT_BOOKED", "CITA", appointment.id(), appointment.createdAt());
+        return appointment;
     }
 
     /**
@@ -34,6 +46,10 @@ public class CitaService {
      */
     @Transactional
     public CitaDto reservar(String pacienteId, CrearCitaRequest request) {
+        return reservarPersistida(pacienteId, request);
+    }
+
+    private CitaDto reservarPersistida(String pacienteId, CrearCitaRequest request) {
         validarIdentificador(pacienteId, "PATIENT_ID_INVALID", "La identidad del paciente no es válida");
         if (request == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_APPOINTMENT", "Los datos de la cita son obligatorios");

@@ -1,5 +1,7 @@
 package com.clinicaserena.staff.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.staff.security.StaffPrincipal;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -24,6 +27,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 import static org.springframework.http.HttpHeaders.CACHE_CONTROL;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -50,9 +57,11 @@ class StaffControllerIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
+    @MockitoSpyBean BitacoraService audit;
 
     @BeforeEach
     void prepareFixture() {
+        reset(audit);
         cleanupFixture();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         String hash = passwordEncoder.encode(PASSWORD);
@@ -122,6 +131,10 @@ class StaffControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/staff/agenda/{id}/arrival", APPOINTMENT_ID)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ARRIVAL_ALREADY_REGISTERED"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_ARRIVAL_RECORDED' "
+                        + "AND actor_tipo='PERSONAL' AND actor_id=? AND actor_rol='RECEPCION' "
+                        + "AND entidad_tipo='CITA' AND entidad_id=?",
+                Integer.class, RECEPTION_ID, APPOINTMENT_ID)).isOne();
     }
 
     @Test
@@ -135,6 +148,25 @@ class StaffControllerIntegrationTest {
         mockMvc.perform(get("/api/v1/staff/agenda").with(user("patient").roles("PACIENTE")))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/staff/agenda")).andExpect(status().isUnauthorized());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_ARRIVAL_RECORDED'",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void falloDeBitacoraRevierteLaLlegada() throws Exception {
+        String token = login("reception.staff@example.test");
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("APPOINTMENT_ARRIVAL_RECORDED"),
+                        eq("CITA"), eq(APPOINTMENT_ID), any(OffsetDateTime.class));
+
+        mockMvc.perform(post("/api/v1/staff/agenda/{id}/arrival", APPOINTMENT_ID)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().is5xxServerError());
+
+        assertThat(jdbc.queryForObject("SELECT llegada_en IS NULL AND llegada_por_personal_id IS NULL FROM citas WHERE id=?",
+                Boolean.class, APPOINTMENT_ID)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_ARRIVAL_RECORDED'",
+                Integer.class)).isZero();
     }
 
     @Test

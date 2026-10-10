@@ -1,6 +1,8 @@
 package com.clinicaserena.catalogo.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.clinica.MutableClock;
+import com.clinicaserena.staff.security.StaffPrincipal;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -13,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -24,6 +27,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -53,9 +61,11 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
     @Autowired MutableClock clock;
+    @MockitoSpyBean BitacoraService audit;
 
     @BeforeEach
     void prepareFixture() {
+        reset(audit);
         cleanupFixture();
         clock.set(OffsetDateTime.of(2026, 10, 1, 15, 0, 0, 0, ZoneOffset.UTC).toInstant());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).withNano(0);
@@ -154,6 +164,86 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id=='" + blockId + "')].practitionerId").value(PRACTITIONER_A));
         assertThat(jdbc.queryForObject("SELECT medico_id FROM bloques_disponibilidad WHERE id = ?", String.class, blockId))
                 .isEqualTo(PRACTITIONER_A);
+    }
+
+    @Test
+    void eventosDeHorarioPersistenActorRecursoYUnRechazoNoLosDuplica() throws Exception {
+        String doctor = login("t2.doctor.a@example.test");
+        String admin = login("t2.admin@example.test");
+        OffsetDateTime start = OffsetDateTime.now(ZoneOffset.UTC).plusDays(25).withHour(9).withMinute(0)
+                .withSecond(0).withNano(0);
+        String blockId = createBlock(doctor, start, 30);
+        OffsetDateTime updated = start.plusDays(1);
+
+        mockMvc.perform(patch("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + doctor).contentType("application/json")
+                        .content("{\"startAt\":\"" + updated + "\",\"endAt\":\"" + updated.plusMinutes(45) + "\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + doctor))
+                .andExpect(status().isNoContent());
+
+        for (String action : List.of("SCHEDULE_BLOCK_CREATED", "SCHEDULE_BLOCK_UPDATED", "SCHEDULE_BLOCK_RETIRED")) {
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion=? "
+                            + "AND actor_tipo='PERSONAL' AND actor_id=? AND actor_rol='MEDICO' "
+                            + "AND entidad_tipo='BLOQUE_DISPONIBILIDAD' AND entidad_id=?",
+                    Integer.class, action, DOCTOR_A, blockId)).isOne();
+        }
+
+        mockMvc.perform(post("/api/v1/staff/medico/horarios").header("Authorization", "Bearer " + admin)
+                        .contentType("application/json")
+                        .content("{\"startAt\":\"" + start.plusDays(3) + "\",\"endAt\":\""
+                                + start.plusDays(3).plusMinutes(30) + "\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion LIKE 'SCHEDULE_BLOCK_%'",
+                Integer.class)).isEqualTo(3);
+    }
+
+    @Test
+    void falloDeBitacoraRevierteAltaEdicionYRetiroDeHorario() throws Exception {
+        String doctor = login("t2.doctor.a@example.test");
+        OffsetDateTime start = OffsetDateTime.now(ZoneOffset.UTC).plusDays(26).withHour(10).withMinute(0)
+                .withSecond(0).withNano(0);
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("SCHEDULE_BLOCK_CREATED"),
+                        eq("BLOQUE_DISPONIBILIDAD"), anyString(), any(OffsetDateTime.class));
+        mockMvc.perform(post("/api/v1/staff/medico/horarios").header("Authorization", "Bearer " + doctor)
+                        .contentType("application/json")
+                        .content("{\"startAt\":\"" + start + "\",\"endAt\":\"" + start.plusMinutes(30) + "\"}"))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bloques_disponibilidad WHERE medico_id=? AND inicio=?",
+                Integer.class, PRACTITIONER_A, start)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='SCHEDULE_BLOCK_CREATED'",
+                Integer.class)).isZero();
+
+        reset(audit);
+        String blockId = createBlock(doctor, start.plusDays(1), 30);
+        OffsetDateTime original = jdbc.queryForObject("SELECT inicio FROM bloques_disponibilidad WHERE id=?",
+                OffsetDateTime.class, blockId);
+        OffsetDateTime changed = original.plusDays(1);
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("SCHEDULE_BLOCK_UPDATED"),
+                        eq("BLOQUE_DISPONIBILIDAD"), eq(blockId), any(OffsetDateTime.class));
+        mockMvc.perform(patch("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + doctor).contentType("application/json")
+                        .content("{\"startAt\":\"" + changed + "\",\"endAt\":\"" + changed.plusMinutes(30) + "\"}"))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT inicio FROM bloques_disponibilidad WHERE id=?",
+                OffsetDateTime.class, blockId)).isEqualTo(original);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='SCHEDULE_BLOCK_UPDATED'",
+                Integer.class)).isZero();
+
+        reset(audit);
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("SCHEDULE_BLOCK_RETIRED"),
+                        eq("BLOQUE_DISPONIBILIDAD"), eq(blockId), any(OffsetDateTime.class));
+        mockMvc.perform(delete("/api/v1/staff/medico/horarios/{id}", blockId)
+                        .header("Authorization", "Bearer " + doctor))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT retirado_en IS NULL AND disponible=true FROM bloques_disponibilidad WHERE id=?",
+                Boolean.class, blockId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='SCHEDULE_BLOCK_RETIRED'",
+                Integer.class)).isZero();
     }
 
     @Test

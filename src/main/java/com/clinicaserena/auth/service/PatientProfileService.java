@@ -5,6 +5,7 @@ import com.clinicaserena.auth.dto.UpdatePatientProfileRequest;
 import com.clinicaserena.auth.entity.CuentaPaciente;
 import com.clinicaserena.auth.repository.CuentaPacienteRepository;
 import com.clinicaserena.auth.security.PatientPrincipal;
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.common.exception.ApiException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -17,9 +18,11 @@ import java.time.ZoneOffset;
 public class PatientProfileService {
 
     private final CuentaPacienteRepository accountRepository;
+    private final BitacoraService audit;
 
-    public PatientProfileService(CuentaPacienteRepository accountRepository) {
+    public PatientProfileService(CuentaPacienteRepository accountRepository, BitacoraService audit) {
         this.accountRepository = accountRepository;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -37,7 +40,9 @@ public class PatientProfileService {
         CuentaPaciente account = accountRepository.findByIdForUpdate(principal.accountId())
                 .filter(found -> found.getPaciente().getId().equals(principal.patientId()))
                 .orElseThrow(this::unauthenticated);
-        account.cambiarNombreCompleto(fullName, OffsetDateTime.now(ZoneOffset.UTC));
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        account.cambiarNombreCompleto(fullName, now);
+        audit.recordPatient(principal, "PATIENT_PROFILE_UPDATED", "CUENTA_PACIENTE", account.getId(), now);
         return toResponse(account);
     }
 

@@ -868,7 +868,8 @@ paths:
         con la fila de la cita bloqueada, rechaza importes negativos o mayores al saldo
         y usa `idempotencyKey` para evitar duplicados por reintento. Un reintento de
         la misma intención devuelve el estado persistido sin crear otro pago; reutilizar
-        la clave para datos distintos responde conflicto.
+        la clave para datos distintos responde conflicto. El primer registro exitoso
+        genera `APPOINTMENT_PAYMENT_RECORDED` en la misma transacción.
       security:
         - bearerAuth: []
       operationId: registerReceptionAppointmentPayment
@@ -965,7 +966,9 @@ paths:
       description: |
         No recibe datos de pago del cliente. Usa exclusivamente la intención guardada y
         su clave; una repetición devuelve el mismo único pago. La intención permanece
-        `COMPLETADA` hasta que el cliente verifique historial y la reconozca.
+        `COMPLETADA` hasta que el cliente verifique historial y la reconozca. Solo la
+        creación inicial del pago genera `APPOINTMENT_PAYMENT_RECORDED`, dentro de la
+        misma transacción; un reintento idempotente no duplica el evento.
       security:
         - bearerAuth: []
       operationId: commitReceptionPaymentIntent
@@ -1308,7 +1311,9 @@ paths:
       summary: Agenda una nueva cita
       description: |
         Requiere autenticación con rol `PACIENTE`. El paciente se obtiene del
-        Bearer validado por el servidor; la petición no acepta `patientId`.
+        Bearer validado por el servidor; la petición no acepta `patientId`. Una reserva
+        exitosa genera `APPOINTMENT_BOOKED` con actor paciente e identificador de cita,
+        sin notas ni otro contenido de la solicitud.
       security:
         - bearerAuth: []
       operationId: createAppointment
@@ -1415,7 +1420,8 @@ paths:
       description: |
         Actualiza únicamente `fullName`, que corresponde a la columna persistida
         `cuentas_paciente.nombre_completo`. No acepta identificadores de paciente,
-        correo ni campos de autenticación.
+        correo ni campos de autenticación. El éxito genera `PATIENT_PROFILE_UPDATED`
+        sobre la cuenta autenticada, sin guardar el nombre ni otros datos personales.
       security:
         - bearerAuth: []
       operationId: updateMyProfile
@@ -2187,7 +2193,7 @@ components:
         actorAccountId: { type: string }
         action:
           type: string
-          description: Acción persistida, por ejemplo STAFF_ACCOUNT_CREATED, CLINICAL_ATTENTION_RECORDED o DENTAL_OBSERVATION_RECORDED.
+          description: Acción persistida, por ejemplo STAFF_ACCOUNT_CREATED, APPOINTMENT_BOOKED, PATIENT_PROFILE_UPDATED, CLINICAL_ATTENTION_RECORDED o DENTAL_OBSERVATION_RECORDED.
           example: SPECIALTY_UPDATED
         entityType: { type: string, example: ESPECIALIDAD }
         entityId: { type: string }

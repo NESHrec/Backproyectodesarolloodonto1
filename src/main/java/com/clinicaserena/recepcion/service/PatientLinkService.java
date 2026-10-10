@@ -48,7 +48,7 @@ public class PatientLinkService {
   if(admin.existsById(actor.patientId()))throw new ApiException(HttpStatus.CONFLICT,"PATIENT_ACCOUNT_ALREADY_LINKED","La cuenta ya tiene un expediente administrativo");
   try{int moved=jdbc.update("update pacientes_administrativos set paciente_id=? where paciente_id=?",actor.patientId(),r.getPacienteAdministrativoId());if(moved!=1)throw new ApiException(HttpStatus.CONFLICT,"PATIENT_LINK_CONFLICT","El expediente cambio durante la vinculacion");jdbc.update("delete from pacientes where id=?",r.getPacienteAdministrativoId());}
   catch(DataIntegrityViolationException e){throw new ApiException(HttpStatus.CONFLICT,"PATIENT_RECORD_HAS_DEPENDENCIES","El expediente provisional tiene datos asociados y requiere revision administrativa");}
-  r.confirmar(actor.accountId(),now);audit.recordPatient(actor,"PATIENT_LINK_CONFIRMED","PACIENTE",actor.patientId(),now);
+  r.confirmar(actor.accountId(),actor.patientId(),now);audit.recordPatient(actor,"PATIENT_LINK_CONFIRMED","PACIENTE",actor.patientId(),now);
  }
  private SolicitudVinculacionPaciente locked(String id){return requests.findByIdForUpdate(id).orElseThrow(()->new ApiException(HttpStatus.NOT_FOUND,"PATIENT_LINK_NOT_FOUND","La solicitud no existe"));}
  private ApiException forbidden(){return new ApiException(HttpStatus.FORBIDDEN,"FORBIDDEN","No tienes permiso para esta operacion");}

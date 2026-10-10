@@ -28,5 +28,8 @@ public class SolicitudVinculacionPaciente {
     public short getIntentos(){return intentos;} public short getMaxIntentos(){return maxIntentos;} public String getEstado(){return estado;}
     public void expirar(){estado="EXPIRADA";} public void revocar(OffsetDateTime now){estado="REVOCADA";revocadoEn=now;codigoHash="0".repeat(64);}
     public void fallo(){intentos++;if(intentos>=maxIntentos){estado="BLOQUEADA";codigoHash="0".repeat(64);}}
-    public void confirmar(String accountId,OffsetDateTime now){estado="CONFIRMADA";confirmadoPorCuentaId=accountId;confirmadoEn=now;codigoHash="0".repeat(64);}
+    public void confirmar(String accountId,String linkedPatientId,OffsetDateTime now){
+        pacienteAdministrativoId=linkedPatientId;estado="CONFIRMADA";confirmadoPorCuentaId=accountId;
+        confirmadoEn=now;codigoHash="0".repeat(64);
+    }
 }

@@ -38,7 +38,7 @@ public class CitaController {
         PatientPrincipal principal = (PatientPrincipal) authentication.getPrincipal();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
-                .body(citaService.reservar(principal.patientId(), request));
+                .body(citaService.reservar(principal, request));
     }
 
     @GetMapping("/pacientes/me/citas")

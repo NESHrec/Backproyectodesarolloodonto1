@@ -1,5 +1,7 @@
 package com.clinicaserena.clinica.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.auth.security.TokenHasher;
 import com.clinicaserena.clinica.ClinicalFixture;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -27,6 +30,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -35,16 +43,19 @@ class PatientPortalIntegrationTest {
     private static final String RECORD_X = "98900000-0000-0000-0000-000000000001";
     private static final String ATTENTION_X = "98700000-0000-0000-0000-000000000001";
     private static final String ITEM_X = "98800000-0000-0000-0000-000000000001";
+    private static final String ACCOUNT_X = "98400000-0000-0000-0000-000000000001";
 
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
+    @MockitoSpyBean BitacoraService audit;
 
     private ClinicalFixture fixture;
 
     @BeforeEach
     void createFixture() {
+        reset(audit);
         fixture = new ClinicalFixture(jdbc);
         fixture.create(passwordEncoder, true);
     }
@@ -77,9 +88,14 @@ class PatientPortalIntegrationTest {
                 .andExpect(jsonPath("$.patientId").value(PATIENT_X))
                 .andExpect(jsonPath("$.fullName").value("Paciente X actualizado"));
 
-        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        assertThat(jdbc.queryForObject(
                 "SELECT nombre_completo FROM cuentas_paciente WHERE paciente_id = ?", String.class, PATIENT_X))
                 .isEqualTo("Paciente X actualizado");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_tipo = 'PACIENTE' "
+                + "AND actor_id = ? AND accion = 'PATIENT_PROFILE_UPDATED' AND entidad_tipo = 'CUENTA_PACIENTE' "
+                + "AND entidad_id = ?", Integer.class, ACCOUNT_X, ACCOUNT_X)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?",
+                Integer.class, "%Paciente X actualizado%")).isZero();
 
         mockMvc.perform(get("/api/v1/pacientes/me/perfil")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -103,9 +119,30 @@ class PatientPortalIntegrationTest {
                         .content("{\"fullName\":\"Paciente X\",\"patientId\":\"" + PATIENT_Y + "\"}"))
                 .andExpect(status().isBadRequest());
 
-        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        assertThat(jdbc.queryForObject(
                 "SELECT nombre_completo FROM cuentas_paciente WHERE paciente_id = ?", String.class, PATIENT_Y))
                 .isEqualTo("Paciente Y sintético");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'PATIENT_PROFILE_UPDATED'",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void auditFailureRollsBackPatientProfileUpdate() throws Exception {
+        String token = patientToken(PATIENT_X);
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).recordPatient(any(PatientPrincipal.class), eq("PATIENT_PROFILE_UPDATED"),
+                        eq("CUENTA_PACIENTE"), eq(ACCOUNT_X), any(OffsetDateTime.class));
+
+        mockMvc.perform(patch("/api/v1/pacientes/me/perfil")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("{\"fullName\":\"Cambio reversible sintético\"}"))
+                .andExpect(status().is5xxServerError());
+
+        assertThat(jdbc.queryForObject("SELECT nombre_completo FROM cuentas_paciente WHERE id = ?",
+                String.class, ACCOUNT_X)).isEqualTo("Paciente X sintético");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'PATIENT_PROFILE_UPDATED'",
+                Integer.class)).isZero();
     }
 
     @Test

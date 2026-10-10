@@ -402,18 +402,33 @@ class MedicalCareIntegrationTest {
         String one=login(mockMvc,objectMapper,"doctor.one@example.test");
         String two=login(mockMvc,objectMapper,"doctor.two@example.test");
         String body="{\"allergies\":\"Alergia sintética declarada\",\"relevantConditions\":\"Condición sintética\",\"currentMedications\":\"Ninguno declarado\",\"dentalHistory\":\"Control previo sintético\"}";
-        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body).header("Authorization","Bearer "+one))
+        String firstResponse=mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body).header("Authorization","Bearer "+one))
                 .andExpect(status().isCreated()).andExpect(header().string(CACHE_CONTROL,"no-store"))
-                .andExpect(jsonPath("$.authorAccountId").value(DOCTOR_ONE)).andExpect(jsonPath("$.recordedAt").isString());
-        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body.replace("Condición sintética","Segunda versión sintética")).header("Authorization","Bearer "+one))
-                .andExpect(status().isCreated());
+                .andExpect(jsonPath("$.authorAccountId").value(DOCTOR_ONE)).andExpect(jsonPath("$.recordedAt").isString())
+                .andReturn().getResponse().getContentAsString();
+        String secondResponse=mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body.replace("Condición sintética","Segunda versión sintética")).header("Authorization","Bearer "+one))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        for(String versionId:List.of(objectMapper.readTree(firstResponse).get("id").asText(),objectMapper.readTree(secondResponse).get("id").asText())){
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_PROFILE_CORRECTION_ADDED' "
+                            + "AND actor_tipo='PERSONAL' AND actor_id=? AND actor_rol='MEDICO' "
+                            + "AND entidad_tipo='VERSION_PERFIL_CLINICO' AND entidad_id=?",
+                    Integer.class,DOCTOR_ONE,versionId)).isOne();
+        }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM versiones_perfil_clinico WHERE paciente_id=?",Integer.class,PATIENT_X)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM versiones_perfil_clinico WHERE paciente_id=? AND autor_personal_id=?",Integer.class,PATIENT_X,DOCTOR_ONE)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_PROFILE_CORRECTION_ADDED'",
+                Integer.class)).isEqualTo(2);
+        for(String sensitive:List.of("Alergia sintética declarada","Condición sintética","Segunda versión sintética","Control previo sintético")){
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?",
+                    Integer.class,"%"+sensitive+"%")).isZero();
+        }
         mockMvc.perform(get("/api/v1/medico/citas/{id}/expediente",APPT_X_ONE_PENDING).header("Authorization","Bearer "+one))
                 .andExpect(jsonPath("$.clinicalProfile.relevantConditions").value("Segunda versión sintética"))
                 .andExpect(jsonPath("$.clinicalProfileHistory",hasSize(2)));
         mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING).contentType(MediaType.APPLICATION_JSON).content(body).header("Authorization","Bearer "+two))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("APPOINTMENT_NOT_FOUND"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_PROFILE_CORRECTION_ADDED'",
+                Integer.class)).isEqualTo(2);
     }
 
     @Test
@@ -424,8 +439,18 @@ class MedicalCareIntegrationTest {
         String original=jdbc.queryForObject("SELECT diagnostico FROM atenciones_clinicas WHERE id=?",String.class,attentionId);
         String path="/api/v1/medico/citas/"+APPT_X_ONE_PENDING+"/atenciones/"+attentionId+"/adendas";
         String addendum="{\"text\":\"Aclaración sintética posterior\",\"reason\":\"Precisión clínica sintética\"}";
-        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum).header("Authorization","Bearer "+one))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.authorAccountId").value(DOCTOR_ONE));
+        String addendumResponse=mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum).header("Authorization","Bearer "+one))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.authorAccountId").value(DOCTOR_ONE))
+                .andReturn().getResponse().getContentAsString();
+        String addendumId=objectMapper.readTree(addendumResponse).get("id").asText();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_ADDENDUM_ADDED' "
+                        + "AND actor_tipo='PERSONAL' AND actor_id=? AND actor_rol='MEDICO' "
+                        + "AND entidad_tipo='ADENDA_ATENCION' AND entidad_id=?",
+                Integer.class,DOCTOR_ONE,addendumId)).isOne();
+        for(String sensitive:List.of("Aclaración sintética posterior","Precisión clínica sintética",original)){
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?",
+                    Integer.class,"%"+sensitive+"%")).isZero();
+        }
         assertThat(jdbc.queryForObject("SELECT diagnostico FROM atenciones_clinicas WHERE id=?",String.class,attentionId)).isEqualTo(original);
         mockMvc.perform(get("/api/v1/medico/citas/{id}/expediente",APPT_X_ONE_PENDING).header("Authorization","Bearer "+one))
                 .andExpect(jsonPath("$.attentions[0].addenda[0].text").value("Aclaración sintética posterior"));
@@ -435,6 +460,41 @@ class MedicalCareIntegrationTest {
         }
         String unlinked=login(mockMvc,objectMapper,"doctor.unlinked@example.test");
         mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(addendum).header("Authorization","Bearer "+unlinked)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("PRACTITIONER_LINK_REQUIRED"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_ADDENDUM_ADDED'",
+                Integer.class)).isOne();
+    }
+
+    @Test
+    void falloDeBitacoraReviertePerfilClinicoYAdenda() throws Exception {
+        String one=login(mockMvc,objectMapper,"doctor.one@example.test");
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class),eq("CLINICAL_PROFILE_CORRECTION_ADDED"),
+                        eq("VERSION_PERFIL_CLINICO"),anyString(),any(OffsetDateTime.class));
+        mockMvc.perform(post("/api/v1/medico/citas/{id}/expediente/perfil",APPT_X_ONE_PENDING)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"allergies\":\"Dato reversible sintético\"}")
+                        .header("Authorization","Bearer "+one))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM versiones_perfil_clinico WHERE paciente_id=?",
+                Integer.class,PATIENT_X)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_PROFILE_CORRECTION_ADDED'",
+                Integer.class)).isZero();
+
+        reset(audit);
+        mockMvc.perform(attention(APPT_X_ONE_PENDING,VALID_ATTENTION).header("Authorization","Bearer "+one))
+                .andExpect(status().isCreated());
+        String attentionId=jdbc.queryForObject("SELECT id FROM atenciones_clinicas WHERE cita_id=?",String.class,APPT_X_ONE_PENDING);
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class),eq("CLINICAL_ADDENDUM_ADDED"),
+                        eq("ADENDA_ATENCION"),anyString(),any(OffsetDateTime.class));
+        mockMvc.perform(post("/api/v1/medico/citas/{cita}/atenciones/{attention}/adendas",APPT_X_ONE_PENDING,attentionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"Aclaración reversible sintética\",\"reason\":\"Motivo reversible sintético\"}")
+                        .header("Authorization","Bearer "+one))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM adendas_atencion WHERE atencion_id=?",
+                Integer.class,attentionId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='CLINICAL_ADDENDUM_ADDED'",
+                Integer.class)).isZero();
     }
 
     @Test

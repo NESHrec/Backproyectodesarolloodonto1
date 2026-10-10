@@ -1,5 +1,7 @@
 package com.clinicaserena.citas.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.citas.dto.CrearCitaRequest;
 import com.clinicaserena.citas.service.CitaService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -14,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -23,6 +26,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -38,6 +46,7 @@ class CitaControllerIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired CitaService citaService;
+    @MockitoSpyBean BitacoraService audit;
 
     private String specialtyId;
     private String practitionerId;
@@ -48,6 +57,8 @@ class CitaControllerIntegrationTest {
 
     @BeforeEach
     void prepararFixtureAislado() {
+        reset(audit);
+        cleanupAudit();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_A, now);
         jdbc.update("INSERT INTO pacientes(id, estado, creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_B, now);
@@ -70,6 +81,7 @@ class CitaControllerIntegrationTest {
 
     @AfterEach
     void limpiarFixtureAislado() {
+        cleanupAudit();
         if (blockAId != null) jdbc.update("DELETE FROM citas WHERE bloque_id IN (?, ?)", blockAId, blockBId);
         if (blockAId != null) jdbc.update("DELETE FROM bloques_disponibilidad WHERE id IN (?, ?)", blockAId, blockBId);
         if (practitionerId != null) jdbc.update("DELETE FROM medicos WHERE id = ?", practitionerId);
@@ -93,6 +105,13 @@ class CitaControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.patientId").value(PATIENT_A))
                 .andExpect(jsonPath("$.practitionerId").value(practitionerId));
+
+        String appointmentId = jdbc.queryForObject("SELECT id FROM citas WHERE bloque_id = ?", String.class, blockAId);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_tipo = 'PACIENTE' "
+                + "AND actor_id = ? AND accion = 'APPOINTMENT_BOOKED' AND entidad_tipo = 'CITA' AND entidad_id = ?",
+                Integer.class, ACCOUNT_A, appointmentId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?",
+                Integer.class, "%Consulta%")).isZero();
 
         citaService.reservar(PATIENT_B, new CrearCitaRequest(practitionerId, specialtyId, slotB, null));
 
@@ -121,6 +140,29 @@ class CitaControllerIntegrationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'APPOINTMENT_BOOKED'",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void falloDeBitacoraRevierteLaReserva() throws Exception {
+        String token = login();
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).recordPatient(any(PatientPrincipal.class), eq("APPOINTMENT_BOOKED"),
+                        eq("CITA"), any(String.class), any(OffsetDateTime.class));
+
+        mockMvc.perform(post("/api/v1/citas")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"practitionerId\":\"" + practitionerId + "\",\"specialtyId\":\""
+                                + specialtyId + "\",\"scheduledAt\":\"" + slotA + "\"}"))
+                .andExpect(status().is5xxServerError());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM citas WHERE bloque_id = ?", Integer.class, blockAId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT disponible FROM bloques_disponibilidad WHERE id = ?",
+                Boolean.class, blockAId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'APPOINTMENT_BOOKED'",
+                Integer.class)).isZero();
     }
 
     @Test
@@ -167,5 +209,11 @@ class CitaControllerIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         JsonNode response = objectMapper.readTree(body);
         return response.get("accessToken").asText();
+    }
+
+    private void cleanupAudit() {
+        jdbc.execute("ALTER TABLE bitacora_eventos DISABLE TRIGGER trg_bitacora_eventos_inmutables");
+        jdbc.update("DELETE FROM bitacora_eventos WHERE actor_id = ?", ACCOUNT_A);
+        jdbc.execute("ALTER TABLE bitacora_eventos ENABLE TRIGGER trg_bitacora_eventos_inmutables");
     }
 }

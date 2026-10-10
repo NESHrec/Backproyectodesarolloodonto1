@@ -1,7 +1,9 @@
 package com.clinicaserena.pagos.controller;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.clinica.ClinicalFixture;
 import com.clinicaserena.clinica.MutableClock;
+import com.clinicaserena.staff.security.StaffPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,7 +17,9 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -36,6 +40,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -50,11 +59,13 @@ class ReceptionBillingIntegrationTest {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
     @Autowired MutableClock clock;
+    @MockitoSpyBean BitacoraService audit;
 
     private ClinicalFixture fixture;
 
     @BeforeEach
     void prepare() throws Exception {
+        reset(audit);
         fixture = new ClinicalFixture(jdbc);
         fixture.create(passwordEncoder, true);
         clock.set(fixture.base().plusHours(CLOCK_OFFSET_HOURS).toInstant());
@@ -87,6 +98,10 @@ class ReceptionBillingIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chargeAmount").value(50000))
                 .andExpect(jsonPath("$.balanceAmount").value(50000));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_CHARGE_SET' "
+                        + "AND actor_tipo='PERSONAL' AND actor_id=? AND actor_rol='RECEPCION' "
+                        + "AND entidad_tipo='CITA' AND entidad_id=?",
+                Integer.class, RECEPTION, APPT_X_ONE_PENDING)).isOne();
 
         mockMvc.perform(post("/api/v1/staff/billing/appointments/{id}/payments", APPT_X_ONE_PENDING)
                         .header("Authorization", "Bearer " + reception)
@@ -97,6 +112,24 @@ class ReceptionBillingIntegrationTest {
                 .andExpect(jsonPath("$.balanceAmount").value(30000))
                 .andExpect(jsonPath("$.payments", hasSize(1)))
                 .andExpect(jsonPath("$.payments[0].registeredByAccountId").value(RECEPTION));
+        String paymentId = jdbc.queryForObject("SELECT id FROM pagos_citas WHERE cita_id=? AND idempotency_key='pay-1'",
+                String.class, APPT_X_ONE_PENDING);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_PAYMENT_RECORDED' "
+                        + "AND actor_tipo='PERSONAL' AND actor_id=? AND actor_rol='RECEPCION' "
+                        + "AND entidad_tipo='PAGO_CITA' AND entidad_id=?",
+                Integer.class, RECEPTION, paymentId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?",
+                Integer.class, "%REC-TEST-1%")).isZero();
+
+        mockMvc.perform(post("/api/v1/staff/billing/appointments/{id}/payments", APPT_X_ONE_PENDING)
+                        .header("Authorization", "Bearer " + reception)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":20000,\"method\":\"EFECTIVO\",\"reference\":\"REC-TEST-1\",\"idempotencyKey\":\"pay-1\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.payments", hasSize(1)));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pagos_citas WHERE cita_id=? AND idempotency_key='pay-1'",
+                Integer.class, APPT_X_ONE_PENDING)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_PAYMENT_RECORDED' "
+                + "AND entidad_id=?", Integer.class, paymentId)).isOne();
 
         mockMvc.perform(post("/api/v1/staff/auth/logout").header("Authorization", "Bearer " + reception))
                 .andExpect(status().isNoContent());
@@ -171,6 +204,40 @@ class ReceptionBillingIntegrationTest {
                 APPT_X_ONE_PENDING)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT coalesce(sum(monto_centavos),0) FROM pagos_citas WHERE cita_id = ?",
                 Long.class, APPT_X_ONE_PENDING)).isEqualTo(20000L);
+        String paymentId = jdbc.queryForObject("SELECT id FROM pagos_citas WHERE cita_id = ?", String.class,
+                APPT_X_ONE_PENDING);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_id = ? "
+                + "AND accion = 'APPOINTMENT_PAYMENT_RECORDED' AND entidad_tipo = 'PAGO_CITA' AND entidad_id = ?",
+                Integer.class, RECEPTION, paymentId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos b WHERE CAST(b AS text) LIKE ?",
+                Integer.class, "%RECARGA-REAL%")).isZero();
+    }
+
+    @Test
+    void auditFailureRollsBackCommittedPaymentIntent() throws Exception {
+        String reception = ClinicalFixture.login(mockMvc, objectMapper, "reception.clinical@example.test");
+        mockMvc.perform(put("/api/v1/staff/billing/appointments/{id}/charge", APPT_X_ONE_PENDING)
+                        .header("Authorization", "Bearer " + reception).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":50000,\"currency\":\"GTQ\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/api/v1/staff/billing/appointments/{id}/payment-intent", APPT_X_ONE_PENDING)
+                        .header("Authorization", "Bearer " + reception).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":20000,\"method\":\"EFECTIVO\",\"idempotencyKey\":\"rollback-key\"}"))
+                .andExpect(status().isOk());
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("APPOINTMENT_PAYMENT_RECORDED"),
+                        eq("PAGO_CITA"), anyString(), any(OffsetDateTime.class));
+
+        mockMvc.perform(post("/api/v1/staff/billing/payment-intent/commit")
+                        .header("Authorization", "Bearer " + reception))
+                .andExpect(status().is5xxServerError());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pagos_citas WHERE cita_id = ?", Integer.class,
+                APPT_X_ONE_PENDING)).isZero();
+        assertThat(jdbc.queryForObject("SELECT estado FROM intenciones_pago_recepcion WHERE cuenta_recepcion_id = ?",
+                String.class, RECEPTION)).isEqualTo("PREPARADA");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion = 'APPOINTMENT_PAYMENT_RECORDED'",
+                Integer.class)).isZero();
     }
 
     @Test
@@ -199,6 +266,43 @@ class ReceptionBillingIntegrationTest {
         mockMvc.perform(get("/api/v1/staff/billing/payment-intent"))
                 .andExpect(status().isUnauthorized());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pagos_citas", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion IN "
+                + "('APPOINTMENT_CHARGE_SET','APPOINTMENT_PAYMENT_RECORDED')", Integer.class)).isZero();
+    }
+
+    @Test
+    void falloDeBitacoraRevierteCargoYPagoDirecto() throws Exception {
+        String reception = ClinicalFixture.login(mockMvc, objectMapper, "reception.clinical@example.test");
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("APPOINTMENT_CHARGE_SET"),
+                        eq("CITA"), eq(APPT_X_ONE_PENDING), any(OffsetDateTime.class));
+        mockMvc.perform(put("/api/v1/staff/billing/appointments/{id}/charge", APPT_X_ONE_PENDING)
+                        .header("Authorization", "Bearer " + reception).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":50000,\"currency\":\"GTQ\"}"))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT monto_centavos IS NULL FROM citas WHERE id=?",
+                Boolean.class, APPT_X_ONE_PENDING)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM cargos_citas_auditoria WHERE cita_id=?",
+                Integer.class, APPT_X_ONE_PENDING)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_CHARGE_SET'",
+                Integer.class)).isZero();
+
+        reset(audit);
+        mockMvc.perform(put("/api/v1/staff/billing/appointments/{id}/charge", APPT_X_ONE_PENDING)
+                        .header("Authorization", "Bearer " + reception).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":50000,\"currency\":\"GTQ\"}"))
+                .andExpect(status().isOk());
+        doThrow(new IllegalStateException("fallo sintético de bitácora"))
+                .when(audit).record(any(StaffPrincipal.class), eq("APPOINTMENT_PAYMENT_RECORDED"),
+                        eq("PAGO_CITA"), anyString(), any(OffsetDateTime.class));
+        mockMvc.perform(post("/api/v1/staff/billing/appointments/{id}/payments", APPT_X_ONE_PENDING)
+                        .header("Authorization", "Bearer " + reception).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":20000,\"method\":\"EFECTIVO\",\"idempotencyKey\":\"direct-rollback\"}"))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pagos_citas WHERE cita_id=?",
+                Integer.class, APPT_X_ONE_PENDING)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_PAYMENT_RECORDED'",
+                Integer.class)).isZero();
     }
 
     @Test

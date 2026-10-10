@@ -184,9 +184,11 @@ public class ReceptionBillingService {
                 .orElse(null);
         if (existing == null) {
             validatePayment(cita, request);
-            pagoRepository.saveAndFlush(PagoCita.registrar(UUID.randomUUID().toString(), cita.getId(),
+            OffsetDateTime now = OffsetDateTime.now(clock);
+            PagoCita payment = pagoRepository.saveAndFlush(PagoCita.registrar(UUID.randomUUID().toString(), cita.getId(),
                     principal.accountId(), request.amount(), cita.getMoneda(), request.method(),
-                    optional(request.reference()), request.idempotencyKey(), OffsetDateTime.now(clock)));
+                    optional(request.reference()), request.idempotencyKey(), now));
+            audit.record(principal, "APPOINTMENT_PAYMENT_RECORDED", "PAGO_CITA", payment.getId(), now);
         } else if (!sameIntent(existing, request)) {
             throw new ApiException(HttpStatus.CONFLICT, "PAYMENT_IDEMPOTENCY_KEY_REUSED",
                     "La clave de idempotencia pertenece a otra intencion de pago");
