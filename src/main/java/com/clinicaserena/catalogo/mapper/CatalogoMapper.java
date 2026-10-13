@@ -21,7 +21,9 @@ public class CatalogoMapper {
                 medico.getNombreCompleto(),
                 medico.getEspecialidad().getId(),
                 medico.getEspecialidad().getNombre(),
-                medico.getNumeroColegiado()
+                medico.getNumeroColegiado(),
+                medico.isActivo(),
+                medico.getFotoClave() == null ? null : "/api/v1/medicos/" + medico.getId() + "/foto?v=" + medico.getFotoClave()
         );
     }
 

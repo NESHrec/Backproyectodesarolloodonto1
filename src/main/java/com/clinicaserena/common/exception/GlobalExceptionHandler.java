@@ -10,6 +10,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.List;
 
@@ -39,6 +40,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleApiException(ApiException ex) {
         ApiError body = ApiError.of(ex.getStatus().value(), ex.getCode(), ex.getMessage());
         return ResponseEntity.status(ex.getStatus()).body(body);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
+        ApiError body = ApiError.of(
+                HttpStatus.PAYLOAD_TOO_LARGE.value(),
+                "PHOTO_TOO_LARGE",
+                "El archivo excede el tamaño permitido"
+        );
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(body);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

@@ -11,6 +11,11 @@ spring:
     username: ${DB_USER:clinica_app}
     password: ${DB_PASSWORD:change-me}
 
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   jpa:
     open-in-view: false
     hibernate:
@@ -36,6 +41,9 @@ server:
   port: ${SERVER_PORT:8080}
 
 clinica:
+  media:
+    practitioner-photo-root: ${PRACTITIONER_PHOTO_STORAGE_ROOT:${user.home}/.clinica-serena/practitioner-photos}
+    practitioner-photo-max-bytes: ${PRACTITIONER_PHOTO_MAX_BYTES:2097152}
   auth:
     session-ttl-seconds: 1800
     staff-session-ttl-seconds: ${AUTH_STAFF_SESSION_TTL_SECONDS:1800}

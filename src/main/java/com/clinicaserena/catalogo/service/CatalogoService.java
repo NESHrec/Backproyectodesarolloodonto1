@@ -10,6 +10,7 @@ import com.clinicaserena.catalogo.repository.MedicoRepository;
 import com.clinicaserena.common.exception.ApiException;
 import com.clinicaserena.common.time.BusinessTime;
 import org.springframework.http.HttpStatus;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,29 +28,43 @@ public class CatalogoService {
     private final BloqueDisponibilidadRepository disponibilidadRepository;
     private final CatalogoMapper mapper;
     private final Clock clock;
+    private final PractitionerPhotoStorage photoStorage;
 
     public CatalogoService(
             EspecialidadRepository especialidadRepository,
             MedicoRepository medicoRepository,
             BloqueDisponibilidadRepository disponibilidadRepository,
             CatalogoMapper mapper,
-            Clock clock
+            Clock clock,
+            PractitionerPhotoStorage photoStorage
     ) {
         this.especialidadRepository = especialidadRepository;
         this.medicoRepository = medicoRepository;
         this.disponibilidadRepository = disponibilidadRepository;
         this.mapper = mapper;
         this.clock = clock;
+        this.photoStorage = photoStorage;
     }
 
     public List<SpecialtyDto> listarEspecialidades() {
         return especialidadRepository.findAllByOrderByNombreAsc().stream().map(mapper::toDto).toList();
     }
 
+    public PublicPractitionerPhoto obtenerFotoPublica(String medicoId) {
+        var medico = medicoRepository.findById(medicoId)
+                .filter(com.clinicaserena.catalogo.entity.Medico::isActivo)
+                .filter(item -> item.getFotoClave() != null)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PHOTO_NOT_FOUND", "La foto no está disponible"));
+        return new PublicPractitionerPhoto(photoStorage.load(medico.getFotoClave()), medico.getFotoContentType());
+    }
+
+    public record PublicPractitionerPhoto(Resource resource, String contentType) {
+    }
+
     public List<PractitionerDto> listarMedicos(String especialidadId) {
         var medicos = especialidadId == null || especialidadId.isBlank()
-                ? medicoRepository.findAllByOrderByNombreCompletoAsc()
-                : medicoRepository.findByEspecialidadIdOrderByNombreCompletoAsc(especialidadId);
+                ? medicoRepository.findByActivoTrueOrderByNombreCompletoAsc()
+                : medicoRepository.findByActivoTrueAndEspecialidadIdOrderByNombreCompletoAsc(especialidadId);
         return medicos.stream().map(mapper::toDto).toList();
     }
 
@@ -58,7 +73,7 @@ public class CatalogoService {
             LocalDate desde,
             LocalDate hasta
     ) {
-        if (!medicoRepository.existsById(medicoId)) {
+        if (medicoRepository.findById(medicoId).filter(com.clinicaserena.catalogo.entity.Medico::isActivo).isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "PRACTITIONER_NOT_FOUND", "El médico no existe");
         }
 

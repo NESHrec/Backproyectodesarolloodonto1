@@ -20,6 +20,7 @@ public interface CuentaPersonalRepository extends JpaRepository<CuentaPersonal, 
     List<CuentaPersonal> findByRolOrderByNombreCompletoAsc(RolPersonal rol);
 
     List<CuentaPersonal> findByMedicoIdAndEstado(String medicoId, EstadoCuentaPersonal estado);
+    boolean existsByMedicoIdAndRolAndEstado(String medicoId, RolPersonal rol, EstadoCuentaPersonal estado);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from CuentaPersonal c where c.id = :id")

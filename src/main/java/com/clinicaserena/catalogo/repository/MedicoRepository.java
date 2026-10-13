@@ -15,6 +15,15 @@ public interface MedicoRepository extends JpaRepository<Medico, String> {
 
     List<Medico> findByEspecialidadIdOrderByNombreCompletoAsc(String especialidadId);
 
+    List<Medico> findByActivoTrueOrderByNombreCompletoAsc();
+    List<Medico> findByActivoTrueAndEspecialidadIdOrderByNombreCompletoAsc(String especialidadId);
+    boolean existsByFotoClave(String fotoClave);
+    boolean existsByNumeroColegiadoIgnoreCaseAndIdNot(String numeroColegiado, String id);
+    boolean existsByNumeroColegiadoIgnoreCase(String numeroColegiado);
+
+    @Query(value = "select exists(select 1 from medicos where upper(regexp_replace(btrim(numero_colegiado), '[[:space:]]+', ' ', 'g')) = :normalizado and (:id is null or id <> :id))", nativeQuery = true)
+    boolean existsByNormalizedLicense(@Param("normalizado") String normalizado, @Param("id") String id);
+
     /** Serializa asignaciones concurrentes del mismo profesional a cuentas distintas. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Medico m where m.id = :id")

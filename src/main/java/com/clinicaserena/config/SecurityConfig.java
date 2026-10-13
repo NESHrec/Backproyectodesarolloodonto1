@@ -75,7 +75,8 @@ public class SecurityConfig {
                                 "/api/v1/health",
                                 "/api/v1/especialidades",
                                 "/api/v1/medicos",
-                                "/api/v1/medicos/*/disponibilidad"
+                                "/api/v1/medicos/*/disponibilidad",
+                                "/api/v1/medicos/*/foto"
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/login-unified", "/api/v1/auth/register",
                                 "/api/v1/auth/verify-email", "/api/v1/auth/resend-verification", "/api/v1/auth/password-recovery",
@@ -92,6 +93,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/staff/especialidades").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/especialidades").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/staff/especialidades/*").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/staff/medicos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/staff/medico/horarios").hasRole("MEDICO")
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/medico/horarios").hasRole("MEDICO")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/staff/medico/horarios/*").hasRole("MEDICO")

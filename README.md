@@ -9,6 +9,7 @@ Están implementados y son públicos:
 - `GET /api/v1/health`
 - `GET /api/v1/especialidades`
 - `GET /api/v1/medicos`
+- `GET /api/v1/medicos/{medicoId}/foto` (solo activos con foto)
 - `GET /api/v1/medicos?specialtyId={id}`
 - `GET /api/v1/medicos/{medicoId}/disponibilidad`
 - `POST /api/v1/auth/login`
@@ -32,6 +33,19 @@ Vinculación médica (solo `ADMIN`):
 
 - `GET /api/v1/staff/accounts?role=MEDICO`
 - `PUT /api/v1/staff/accounts/{accountId}/practitioner` y `DELETE` del mismo recurso
+
+Gestión del catálogo de profesionales (solo `ADMIN`):
+
+- `GET` y `POST /api/v1/staff/medicos`
+- `PATCH /api/v1/staff/medicos/{medicoId}` y `/estado`
+- `PUT` y `DELETE /api/v1/staff/medicos/{medicoId}/foto`
+
+Las fotos se guardan fuera de PostgreSQL y del repositorio. Configura
+`PRACTITIONER_PHOTO_STORAGE_ROOT` con un directorio persistente, respaldado y
+compartido por las instancias que sirven la API. El valor local predeterminado es
+`%USERPROFILE%/.clinica-serena/practitioner-photos` (o su equivalente Unix).
+JPEG y PNG se validan y recodifican; el límite predeterminado es 2 MiB y se puede
+ajustar con `PRACTITIONER_PHOTO_MAX_BYTES`.
 
 Atención médica (solo `MEDICO` con profesional vinculado):
 
