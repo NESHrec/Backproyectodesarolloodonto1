@@ -1,5 +1,6 @@
 package com.clinicaserena.auth.service;
 
+import com.clinicaserena.push.repository.PushDeviceRepository;
 import com.clinicaserena.auth.dto.*;
 import com.clinicaserena.auth.entity.*;
 import com.clinicaserena.auth.repository.*;
@@ -27,13 +28,16 @@ public class PatientAccountService {
     private final TokenCuentaPacienteRepository tokens; private final SesionPacienteRepository sessions;
     private final PasswordEncoder encoder; private final AccountMailService mail; private final IdentityRateLimiter limiter;
     private final TransactionTemplate transactionTemplate;
+    private final PushDeviceRepository pushDevices;
     private final long verificationTtl; private final long recoveryTtl; private static final SecureRandom RANDOM=new SecureRandom();
     public PatientAccountService(PacienteRepository patients, CuentaPacienteRepository accounts,
             TokenCuentaPacienteRepository tokens, SesionPacienteRepository sessions, PasswordEncoder encoder,
             AccountMailService mail, IdentityRateLimiter limiter,
             TransactionTemplate transactionTemplate,
             @Value("${clinica.auth.verification-ttl-seconds:86400}") long verificationTtl,
-            @Value("${clinica.auth.recovery-ttl-seconds:1800}") long recoveryTtl) {
+            @Value("${clinica.auth.recovery-ttl-seconds:1800}") long recoveryTtl,
+            PushDeviceRepository pushDevices) {
+        this.pushDevices=pushDevices;
         this.patients=patients;this.accounts=accounts;this.tokens=tokens;this.sessions=sessions;this.encoder=encoder;
         this.mail=mail;this.limiter=limiter;this.transactionTemplate=transactionTemplate;this.verificationTtl=verificationTtl;this.recoveryTtl=recoveryTtl;
     }
@@ -73,7 +77,11 @@ public class PatientAccountService {
     @Transactional
     public void reset(ResetPasswordRequest request) { TokenCuentaPaciente token=consume(request.token(),TipoTokenCuenta.RECUPERACION_PASSWORD);
         OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC); token.getCuenta().cambiarPassword(encoder.encode(request.password()),now);
-        sessions.revokeAllByCuentaId(token.getCuenta().getId(),now); }
+        sessions.revokeAllByCuentaId(token.getCuenta().getId(),now);
+        // Al revocar todas las sesiones, ningún dispositivo de la cuenta sigue recibiendo recordatorios.
+        // Sin auditoría por ahora: el restablecimiento no tiene un actor PACIENTE autenticado (llega con el
+        // token de recuperación, sin sesión). Pendiente de decidir con el equipo cómo registrarlo.
+        pushDevices.deleteByAccount(token.getCuenta().getId()); }
     private TokenCuentaPaciente consume(String raw,TipoTokenCuenta type) { OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC);
         TokenCuentaPaciente token=tokens.findByTokenHashAndTipo(TokenHasher.sha256(raw),type).orElseThrow(this::invalidToken);
         if(token.getUsadoEn()!=null || !token.getExpiraEn().isAfter(now)) throw invalidToken(); token.usar(now); return token; }

@@ -45,6 +45,19 @@ clinica:
   media:
     practitioner-photo-root: ${PRACTITIONER_PHOTO_STORAGE_ROOT:${user.home}/.clinica-serena/practitioner-photos}
     practitioner-photo-max-bytes: ${PRACTITIONER_PHOTO_MAX_BYTES:2097152}
+  # Recordatorios push (Fase D1). Apagados por defecto en todos los perfiles. NONE: sin envío y el
+  # registro de dispositivos responde 409 PUSH_NOT_ENABLED. SIMULATED solo se permite con dev o test.
+  # Las credenciales de un proveedor real (Firebase) irán en variables de entorno, nunca en Git.
+  push:
+    provider: ${CLINICA_PUSH_PROVIDER:NONE}
+    reminders:
+      enabled: ${CLINICA_PUSH_REMINDERS_ENABLED:false}
+      interval-ms: ${CLINICA_PUSH_REMINDERS_INTERVAL_MS:300000}
+      initial-delay-ms: ${CLINICA_PUSH_REMINDERS_INITIAL_DELAY_MS:30000}
+      grace: ${CLINICA_PUSH_REMINDERS_GRACE:PT2H}
+      stale-after: ${CLINICA_PUSH_REMINDERS_STALE_AFTER:PT10M}
+      max-attempts: 3
+      batch-size: 100
   auth:
     session-ttl-seconds: 1800
     staff-session-ttl-seconds: ${AUTH_STAFF_SESSION_TTL_SECONDS:1800}
