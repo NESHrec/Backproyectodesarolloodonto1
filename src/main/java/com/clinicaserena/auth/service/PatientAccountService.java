@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.mail.MailException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,7 @@ import java.util.*;
 @Service
 public class PatientAccountService {
     public static final String GENERIC="Si la solicitud es válida, recibirás un correo con los pasos siguientes.";
+    private static final Logger log = LoggerFactory.getLogger(PatientAccountService.class);
     private final PacienteRepository patients; private final CuentaPacienteRepository accounts;
     private final TokenCuentaPacienteRepository tokens; private final SesionPacienteRepository sessions;
     private final PasswordEncoder encoder; private final AccountMailService mail; private final IdentityRateLimiter limiter;
@@ -64,7 +67,7 @@ public class PatientAccountService {
         String email=normalize(request.email()); if(!limiter.acquire("recover",email)) return new GenericMessageResponse(GENERIC);
         accounts.findByEmailNormalizado(email).filter(a->a.getEmailVerificadoEn()!=null).ifPresent(account->{
             String raw=transactionTemplate.execute(status->issue(account,TipoTokenCuenta.RECUPERACION_PASSWORD,recoveryTtl));
-            if(raw!=null) try { mail.recovery(email,raw); } catch(MailException ignored) { /* generic response */ }
+            if(raw!=null) safelySendRecovery(email,raw);
         }); return new GenericMessageResponse(GENERIC);
     }
     @Transactional
@@ -79,7 +82,21 @@ public class PatientAccountService {
         CuentaPaciente locked=accounts.findByIdForUpdate(account.getId()).orElseThrow();
         tokens.invalidateActive(locked.getId(),type,now);String raw=randomToken();tokens.saveAndFlush(TokenCuentaPaciente.crear(
                 UUID.randomUUID().toString(),locked,type,TokenHasher.sha256(raw),now.plusSeconds(ttl),now));return raw;}
-    private void safelySendVerification(String email,String raw){try{mail.verification(email,raw);}catch(MailException ignored){/* resend remains possible */}}
+    private void safelySendVerification(String email,String raw){
+        safelySend("VERIFICATION", () -> mail.verification(email,raw));
+    }
+    private void safelySendRecovery(String email,String raw){
+        safelySend("RECOVERY", () -> mail.recovery(email,raw));
+    }
+    private void safelySend(String operation, Runnable send){
+        String mailDeliveryId = UUID.randomUUID().toString();
+        try {
+            send.run();
+        } catch (MailException exception) {
+            log.warn("MAIL_DELIVERY_FAILED mailDeliveryId={} operation={} exceptionType={}",
+                    mailDeliveryId, operation, exception.getClass().getSimpleName());
+        }
+    }
     private GenericMessageResponse generic(){return new GenericMessageResponse(GENERIC);}
     public static String normalize(String value){return value.trim().toLowerCase(Locale.ROOT);}
     private String randomToken(){byte[] b=new byte[32];RANDOM.nextBytes(b);return Base64.getUrlEncoder().withoutPadding().encodeToString(b);}
