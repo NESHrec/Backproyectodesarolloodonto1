@@ -28,7 +28,7 @@ class PatientAccountServiceTest {
         when(accounts.findByIdForUpdate("a")).thenReturn(Optional.of(account));
         when(accounts.findByEmailNormalizado("missing@example.test")).thenReturn(Optional.empty());
         doThrow(new MailSendException("smtp down")).when(mail).recovery(eq("exists@example.test"),anyString());
-        PatientAccountService service=new PatientAccountService(patients,accounts,tokens,sessions,encoder,mail,new IdentityRateLimiter(3,900,100),tx,86400,1800);
+        PatientAccountService service=new PatientAccountService(patients,accounts,tokens,sessions,encoder,mail,new IdentityRateLimiter(3,900,100),tx,86400,1800,mock(com.clinicaserena.push.repository.PushDeviceRepository.class));
         var existing=service.recover(new EmailRequest("exists@example.test"));var missing=service.recover(new EmailRequest("missing@example.test"));
         assertThat(existing).isEqualTo(missing);verify(tokens).invalidateActive(eq("a"),eq(TipoTokenCuenta.RECUPERACION_PASSWORD),any());
     }

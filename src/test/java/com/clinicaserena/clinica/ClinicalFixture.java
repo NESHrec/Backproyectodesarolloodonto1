@@ -120,6 +120,10 @@ public final class ClinicalFixture {
         jdbc.execute("DO $$ BEGIN IF to_regclass('adendas_atencion') IS NOT NULL THEN "
                 + "EXECUTE 'TRUNCATE TABLE adendas_atencion, versiones_perfil_clinico, receta_items, atenciones_clinicas, expedientes_clinicos'; "
                 + "ELSE EXECUTE 'TRUNCATE TABLE receta_items, atenciones_clinicas, expedientes_clinicos'; END IF; END $$");
+        // V17: recordatorios y dispositivos push referencian citas y cuentas del fixture. Con un esquema
+        // anterior (pruebas de migración) las tablas aún no existen.
+        jdbc.execute("DO $$ BEGIN IF to_regclass('recordatorios_cita') IS NOT NULL THEN "
+                + "EXECUTE 'TRUNCATE TABLE recordatorios_cita, dispositivos_push_paciente'; END IF; END $$");
         jdbc.update("DELETE FROM historial_vinculacion_medico WHERE cuenta_personal_id IN " + staffIn, STAFF.toArray());
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN " + staffIn, STAFF.toArray());
         jdbc.update("UPDATE cuentas_personal SET medico_id = NULL, medico_vinculado_en = NULL, medico_vinculado_por = NULL "
