@@ -20,6 +20,7 @@ Están implementados y protegidos para pacientes autenticados:
 - `POST /api/v1/auth/logout`
 - `POST /api/v1/citas`
 - `GET /api/v1/pacientes/me/citas`
+- `PUT /api/v1/pacientes/me/dispositivos-push` y `POST /api/v1/pacientes/me/dispositivos-push/retiro` (token de notificaciones; ver «Recordatorios push»)
 
 El acceso del personal usa un esquema Bearer opaco separado del de pacientes:
 
@@ -104,6 +105,37 @@ que ejecutó la acción. Una segunda solicitud devuelve conflicto y no sobrescri
 registro anterior.
 
 La autenticación de pacientes usa Bearer opaco de vida limitada: el login devuelve el token una sola vez, la base de datos conserva solo su hash y `logout` revoca la sesión. La persistencia de citas y la reserva transaccional de bloques están expuestas por controlador; el `patientId` se obtiene desde `PatientPrincipal`, no desde JSON, rutas ni query strings. La base de datos impide más de una cita no cancelada por bloque y el servicio bloquea la fila de disponibilidad durante la reserva. Una cancelación futura conserva el historial y libera el bloque para una nueva reserva.
+
+## Recordatorios push (simulados, sin Firebase)
+
+La migración V17 crea `dispositivos_push_paciente` (token por teléfono, único por su SHA-256) y
+`recordatorios_cita` (un registro por cita y tipo, con restricción única). Reglas:
+
+- Un solo recordatorio por cita, solo al paciente, cuando la cita está entre 22 y 24 horas en el
+  futuro (`(ahora + 24 h − gracia, ahora + 24 h]`). Citas canceladas, completadas o pasadas no se
+  recuerdan; cuentas bloqueadas o sin verificar se omiten.
+- El texto lleva solo fecha y hora en `America/Guatemala` («hoy» o «mañana» según la fecha local).
+  No incluye médico, especialidad, notas, diagnóstico, receta ni el nombre del paciente.
+- Sin duplicados: cada pasada reclama la cita con `INSERT … ON CONFLICT DO NOTHING` (fila
+  `EN_PROCESO`, confirmada de inmediato); solo quien la inserta envía. El envío ocurre fuera de
+  transacciones y el estado se cierra después con otra sentencia. Un `EN_PROCESO` más reciente que
+  `stale-after` nunca se retoma; uno abandonado o un `FALLIDO` se reintenta hasta 3 veces.
+- Con varios dispositivos, el recordatorio queda `SIMULADO` (o `ENVIADO` con un proveedor real) si
+  al menos uno salió bien, y `FALLIDO` solo si fallaron todos.
+- Cerrar la sesión retira los dispositivos que registró; restablecer la contraseña retira todos los
+  de la cuenta. El token nunca se devuelve, no se registra en logs ni en la bitácora.
+
+| Variable | Valor por defecto | Uso |
+|---|---|---|
+| `CLINICA_PUSH_PROVIDER` | `NONE` (en `dev`: `SIMULATED`) | `NONE`: sin envío y `PUT …/dispositivos-push` responde 409 `PUSH_NOT_ENABLED`. `SIMULATED`: solo con perfil `dev` o `test` (si no, la aplicación no arranca); no entrega nada y solo acepta tokens `SIMULADO-…` |
+| `CLINICA_PUSH_REMINDERS_ENABLED` | `false` (también en `dev`) | Enciende la tarea programada. Requiere un proveedor distinto de `NONE` |
+| `CLINICA_PUSH_REMINDERS_INTERVAL_MS` | `300000` | Frecuencia de la tarea (5 min) |
+| `CLINICA_PUSH_REMINDERS_GRACE` | `PT2H` | Ancho de la ventana antes de las 24 h |
+| `CLINICA_PUSH_REMINDERS_STALE_AFTER` | `PT10M` | Antigüedad para considerar abandonado un `EN_PROCESO` |
+
+El modo simulado nunca se presenta como notificación entregada: su estado es `SIMULADO`, no
+`ENVIADO`. Cuando exista el proyecto de Firebase (cuenta del equipo), su credencial se configurará por
+variable de entorno en un `.env` local no versionado; nunca en Git.
 
 ## Stack
 
