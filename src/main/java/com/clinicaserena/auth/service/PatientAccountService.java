@@ -93,9 +93,14 @@ public class PatientAccountService {
         try {
             send.run();
         } catch (MailException exception) {
-            log.warn("MAIL_DELIVERY_FAILED mailDeliveryId={} operation={} exceptionType={}",
-                    mailDeliveryId, operation, exception.getClass().getSimpleName());
+            log.warn("MAIL_DELIVERY_FAILED mailDeliveryId={} operation={} exceptionType={} causeType={}",
+                    mailDeliveryId, operation, exception.getClass().getSimpleName(), rootCauseType(exception));
         }
+    }
+    private String rootCauseType(Throwable failure) {
+        Throwable root = failure;
+        while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+        return root.getClass().getSimpleName();
     }
     private GenericMessageResponse generic(){return new GenericMessageResponse(GENERIC);}
     public static String normalize(String value){return value.trim().toLowerCase(Locale.ROOT);}
