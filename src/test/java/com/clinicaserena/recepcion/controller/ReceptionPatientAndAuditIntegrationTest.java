@@ -160,18 +160,26 @@ class ReceptionPatientAndAuditIntegrationTest {
         insertSearchPatient("b6200000-0000-0000-0000-000000000004", "CS062 combo %_\\ marker", "6100000004");
         insertSearchPatient("b6200000-0000-0000-0000-000000000005", "CS062 normal partial Árbol Ñandú", "6100000005");
         insertSearchPatient("b6200000-0000-0000-0000-000000000006", "CS062' OR '1'='1 --", "6100000006");
+        insertSearchPatient("b6200000-0000-0000-0000-000000000008", "CS062 combo second %_\\ literal", "6100000008");
 
         String receptionToken = login("patients.reception@example.test");
         org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "normal partial"))
                 .containsExactly("b6200000-0000-0000-0000-000000000005");
-        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "%"))
-                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000001", "b6200000-0000-0000-0000-000000000004");
-        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "_"))
-                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000002", "b6200000-0000-0000-0000-000000000004");
+        assertPagedLiteralSearch(receptionToken, "%", Set.of(
+                "b6200000-0000-0000-0000-000000000001",
+                "b6200000-0000-0000-0000-000000000004",
+                "b6200000-0000-0000-0000-000000000008"));
+        assertPagedLiteralSearch(receptionToken, "_", Set.of(
+                "b6200000-0000-0000-0000-000000000002",
+                "b6200000-0000-0000-0000-000000000004",
+                "b6200000-0000-0000-0000-000000000008"));
         org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "\\"))
-                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000003", "b6200000-0000-0000-0000-000000000004");
-        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "%_\\"))
-                .containsExactly("b6200000-0000-0000-0000-000000000004");
+                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000003",
+                        "b6200000-0000-0000-0000-000000000004",
+                        "b6200000-0000-0000-0000-000000000008");
+        assertPagedLiteralSearch(receptionToken, "%_\\", Set.of(
+                "b6200000-0000-0000-0000-000000000004",
+                "b6200000-0000-0000-0000-000000000008"));
         org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "árbol ñandú"))
                 .containsExactly("b6200000-0000-0000-0000-000000000005");
         org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "CS062' OR '1'='1 --"))
@@ -218,13 +226,43 @@ class ReceptionPatientAndAuditIntegrationTest {
     }
 
     private JsonNode searchPage(String receptionToken, String search) throws Exception {
+        return searchPage(receptionToken, search, 0, 100);
+    }
+
+    private JsonNode searchPage(String receptionToken, String search, int page, int limit) throws Exception {
         String body = mockMvc.perform(get("/api/v1/staff/patients")
                         .header("Authorization", "Bearer " + receptionToken)
                         .param("search", search)
-                        .param("limit", "100"))
+                        .param("page", String.valueOf(page))
+                        .param("limit", String.valueOf(limit)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
+    }
+
+    private void assertPagedLiteralSearch(String receptionToken, String search, Set<String> expectedPatientIds)
+            throws Exception {
+        int pageSize = 1;
+        org.assertj.core.api.Assertions.assertThat(expectedPatientIds).hasSizeGreaterThan(pageSize);
+        Set<String> actualPatientIds = new HashSet<>();
+
+        for (int page = 0; page < expectedPatientIds.size(); page++) {
+            JsonNode response = searchPage(receptionToken, search, page, pageSize);
+            org.assertj.core.api.Assertions.assertThat(response.path("page").asInt()).isEqualTo(page);
+            org.assertj.core.api.Assertions.assertThat(response.path("size").asInt()).isEqualTo(pageSize);
+            org.assertj.core.api.Assertions.assertThat(response.path("items").size()).isEqualTo(pageSize);
+            org.assertj.core.api.Assertions.assertThat(response.path("totalElements").asLong())
+                    .isEqualTo(expectedPatientIds.size());
+            org.assertj.core.api.Assertions.assertThat(response.path("hasNext").asBoolean())
+                    .isEqualTo(page < expectedPatientIds.size() - 1);
+
+            String patientId = response.path("items").get(0).path("patientId").asText();
+            org.assertj.core.api.Assertions.assertThat(expectedPatientIds).contains(patientId);
+            org.assertj.core.api.Assertions.assertThat(actualPatientIds).doesNotContain(patientId);
+            actualPatientIds.add(patientId);
+        }
+
+        org.assertj.core.api.Assertions.assertThat(actualPatientIds).containsExactlyInAnyOrderElementsOf(expectedPatientIds);
     }
 
     private String login(String email) throws Exception {

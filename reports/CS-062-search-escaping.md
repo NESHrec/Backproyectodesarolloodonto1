@@ -73,3 +73,45 @@ El recorrido de navegador usó la cuenta sintética privada ya existente, sin ex
 ## Estado de publicación
 
 Este informe registra la validación previa a la publicación. La rama autorizada es únicamente `fix/CS-062-search-escaping`. Estado de commit y push se comunica en la entrega al Scrum; no se afirma aprobación integral de seguridad fuera del alcance CS-062.
+
+## Ampliación de validación de `countQuery` — 2026-10-19
+
+Se amplió `ReceptionPatientAndAuditIntegrationTest` sin cambiar la implementación del servicio ni el repositorio. Se añadió un segundo fixture que contiene `%_\`, además de candidatos que solo resultarían coincidentes si `%` o `_` se interpretasen como comodines. Los resultados esperados se derivan de los nombres e IDs insertados por el test:
+
+| Consulta literal | IDs esperados | Total esperado |
+|---|---|---:|
+| `%` | `b6200000-0000-0000-0000-000000000001`, `b6200000-0000-0000-0000-000000000004`, `b6200000-0000-0000-0000-000000000008` | 3 |
+| `_` | `b6200000-0000-0000-0000-000000000002`, `b6200000-0000-0000-0000-000000000004`, `b6200000-0000-0000-0000-000000000008` | 3 |
+| `%_\` | `b6200000-0000-0000-0000-000000000004`, `b6200000-0000-0000-0000-000000000008` | 2 |
+
+Para las tres consultas se solicitó `limit=1` con `page=0..N-1`. Cada página devuelve exactamente un elemento (página completa), se valida su ID, `totalElements`, `hasNext`, el tamaño y la unión exacta de IDs sin duplicados. Como el contenido de cada página llena el tamaño solicitado mientras el total esperado es mayor que uno, Spring Data no puede inferir el total por una página parcial: la paginación hace ejecutar el `countQuery` en cada solicitud. Los parámetros `page` y `limit` coinciden con el contrato real de `GET /api/v1/staff/patients`. La consulta principal y `countQuery` continúan teniendo los mismos cuatro predicados y cláusulas `ESCAPE '\\'`.
+
+La primera ejecución de la clase ampliada dio 5 PASS / 1 FAIL por una expectativa de fixture incompleta: el registro `...0008`, creado para `%_\\`, también contiene una barra invertida y por eso debía incluirse en esa búsqueda literal. Se corrigió únicamente la expectativa del test para reflejar los datos insertados; no se alteró la implementación. La repetición quedó en 6/6 PASS.
+
+| Comando | Resultado |
+|---|---|
+| `.\mvnw.cmd -Dtest=ReceptionPatientAndAuditIntegrationTest test` (repetición final) | 6 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS, exit 0 |
+| `.\mvnw.cmd test` | 127 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS, exit 0 |
+| `git diff --check` | PASS, exit 0 |
+
+Las dos ejecuciones Maven usaron Java 21.0.12.1 y el PostgreSQL QA de pruebas ya identificado en este informe: contenedor PostgreSQL 16 aislado, `127.0.0.1:54330`, base `clinica_serena_validation_tests_20261008`. La identidad efectiva fue consultada antes de correrlas; `TEST_DB_*` se estableció solo para cada proceso Maven. Flyway confirmó versión de esquema 16, con 16 migraciones validadas y ninguna pendiente. No se usaron la base de navegador ni la habitual.
+
+Esta ampliación valida específicamente la consulta de conteo y no modifica las limitaciones generales de regresión descritas arriba. El backend quedó en el commit publicado `c99c9135874201ce6bf5329dca68617479fbee74` con cambios locales no publicados en el test y este informe; esta ampliación no se ha comiteado ni publicado.
+
+## Revisión final de regresión y estado de publicación — 2026-10-19
+
+Se verificó nuevamente el worktree backend `fix/CS-062-search-escaping`, HEAD inicial `c99c9135874201ce6bf5329dca68617479fbee74`, remoto NESHrec correcto, base ancestro `4dbe347c7face9cf02f892b3262331cf633a4bd7`, staging vacío y únicamente los cambios locales esperados del test de integración y este informe. El frontend permaneció detached en `ebf7fbe723416a45ad43c3357b2a1a9c18c2151a`, sin cambios versionados.
+
+El recorrido de navegador se ejecutó mediante formularios visibles en Edge/Playwright con cuentas sintéticas existentes, Next en `127.0.0.1:3004` y Spring en `127.0.0.1:8081`, conectado a PostgreSQL de navegador aislado en `127.0.0.1:54331` y correo de captura local. Los servicios temporales fueron identificados por su worktree y configuración, distintos de los servicios preexistentes, que no se detuvieron ni reconfiguraron. El registro sanitizado quedó fuera de Git en `runtime/cs062-browser-regression-20261019/browser-regression-sanitized.json`.
+
+Resultado de la última pasada: 51 PASS, 0 FAIL, 6 casos de apertura directa marcados BLOCKED porque el middleware redirigió a la vista autorizada, 0 pendientes; los seis bloqueos están emparejados con comprobaciones de denegación/redirección PASS. Login y logout reales pasaron para RECEPCION, ADMIN, MEDICO y PACIENTE. Se revisaron rutas públicas, de recepción, administración, médico y paciente a 1366×768; no se observó overflow horizontal. No se expuso Bearer en navegador. Dos respuestas 403 al consultar datos de cobros desde la sesión ADMIN fueron respuestas esperadas de autorización; la UI de `/recepcion/cobros` es accesible como shell, pero la lectura de datos fue denegada. Esto no demuestra acceso a datos ni se clasifica aquí como vulnerabilidad; queda como punto de política/UX para revisión independiente. Los 180 requests cancelados se clasificaron como `navigation-abort` por navegación rápida de Playwright, no como errores de red del servicio. Hubo 2 mensajes de consola asociados a las denegaciones 403 previstas y 0 errores inesperados.
+
+El recorrido de registro/recuperación abrió los formularios sin enviarlos; no se alteraron cuentas ni se generaron correos. La reserva se inspeccionó sin confirmar y no se crearon citas; cobros/pagos no se ejecutaron. Correo, disponibilidad/reserva completa y operaciones financieras quedan NO EJECUTADOS en navegador. Las suites automáticas frontend no sustituyen estos recorridos manuales.
+
+La ejecución final de la clase de integración fue 6/6 y la suite Maven completa 127/127, con Java 21 y PostgreSQL de pruebas aislado. Las suites deterministas frontend fueron 36/36; lint, typecheck y build finalizaron con código 0. Lint dejó un warning preexistente documentado en `tests/browser-delivery-journey.mjs`; no hubo errores de lint.
+
+La auditoría npm actual se ejecutó con `npm ci` y `npm audit --json` sin cambiar manifiestos ni lockfile. npm terminó audit con código 1 por vulnerabilidades detectadas: 7 paquetes afectados, todos de severidad alta, vinculados a 3 avisos distintos. El JSON sanitizado y los detalles se encuentran fuera de Git; el análisis se documenta en `reports/npm-audit-review.md`. No se ejecutaron `npm audit fix` ni `npm update`.
+
+## Dictamen acotado
+
+CS-062, incluidas las consultas de contenido y conteo, la validación de longitud, los casos literales especiales y el formulario BFF→Spring, tiene evidencia aprobatoria en QA PostgreSQL y navegador. No se modificaron esquema, migraciones ni datos persistentes de aplicación; el rollback de código no requiere restauración de base por CS-062. La aplicación completa no queda aprobada para producción por esta tarea: los avisos npm y recorridos generales no ejecutados permanecen pendientes, conforme al informe `reports/CS-062-production-readiness.md`.

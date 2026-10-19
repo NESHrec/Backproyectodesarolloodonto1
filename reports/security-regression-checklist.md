@@ -46,3 +46,47 @@
 ## Dictamen
 
 CS-062 y sus pruebas esenciales quedaron validadas en PostgreSQL y en el formulario real de búsqueda. La validación no equivale a una aprobación general de seguridad ni cubre manualmente todos los roles, correo, reservas o pagos. Ningún control de seguridad, configuración productiva o backend ajeno a CS-062 fue modificado.
+
+## Actualización de regresión controlada — 2026-10-19
+
+### Entorno y alcance realmente ejecutado
+
+- Worktree backend: `fix/CS-062-search-escaping`, inicial en `c99c9135874201ce6bf5329dca68617479fbee74`, basado en `4dbe347c7face9cf02f892b3262331cf633a4bd7`.
+- Worktree frontend: detached `ebf7fbe723416a45ad43c3357b2a1a9c18c2151a`, sin cambios versionados.
+- Edge/Playwright, Next `127.0.0.1:3004`, Spring `127.0.0.1:8081`, PostgreSQL navegador aislado `127.0.0.1:54331`; cuentas sintéticas privadas ya existentes; correo capturado localmente. No se registraron contraseñas, cookies, tokens ni cabeceras.
+- Evidencia estructurada sanitizada, fuera del repositorio: `runtime/cs062-browser-regression-20261019/browser-regression-sanitized.json`.
+
+### Matriz navegador real
+
+| Rol/ruta o acción | Resultado | Evidencia / límite |
+|---|---|---|
+| Público: `/`, `/clinica`, `/especialidades`, `/medicos`, `/reservar`, `/iniciar-sesion`, `/registro`, `/recuperar-contrasena` | PASS | HTTP 200, encabezado principal presente, viewport 1366×768, sin overflow |
+| Login visible y sesión RECEPCION | PASS | Formulario real, BFF/CSRF, aterrizaje en `/recepcion` |
+| RECEPCION: resumen, agenda, pacientes, cobros | PASS | Rutas renderizadas; búsqueda CS-062 tiene cobertura real previa documentada arriba |
+| RECEPCION: admin/bitácora y médico/agenda | PASS denegación | Middleware devolvió a `/recepcion`; no se confunde la navegación UI con HTTP 401/403 del API |
+| Login visible y sesión ADMIN; `/admin`, usuarios, roles, bitácora | PASS | Formulario real y páginas cargadas |
+| ADMIN: médico/agenda | PASS denegación | Middleware devolvió a `/admin` |
+| ADMIN: shell `/recepcion/cobros` | PASS carga / PENDIENTE política | La ruta shell abrió, pero las dos solicitudes de datos recibieron 403. No se observó acceso a datos. Política de acceso a shell queda para revisión; no se corrigió |
+| Login visible y sesión MEDICO; `/medico`, agenda | PASS | Formulario real y rutas cargadas |
+| MEDICO: admin/roles | PASS denegación | Middleware devolvió a `/medico` |
+| Login visible y sesión PACIENTE; `/paciente`, citas y `/reservar` | PASS | Formulario real y páginas cargadas |
+| PACIENTE: recepción/pacientes y admin/bitácora | PASS denegación | Middleware devolvió a inicio de sesión |
+| Logout y visita posterior a ruta protegida, cuatro roles | PASS | Formulario real; logout HTTP 200; ruta protegida redirige a login |
+| Consola, Network y Bearer | PASS acotado | 2 mensajes de consola por 403 deliberados; 0 inesperados; requests fallidos solo `navigation-abort`; Bearer no visible en navegador |
+
+El resumen de ejecución fue 51 PASS, 0 FAIL, 6 rutas directas BLOCKED por redirección (con denegación esperada verificada por separado), 0 pendientes. 180 requests cancelados por navegación rápida se clasificaron como abortos de navegación, no como fallas del backend. Todos los resultados visuales corresponden a 1366×768; no se afirma revisión en otros viewports.
+
+### Acciones no ejecutadas
+
+- Registro, verificación de correo y recuperación: formularios abiertos, no enviados; no se alteraron usuarios ni se generaron mensajes.
+- Reserva final, escritura de cita, cargo, pago o idempotencia financiera: NO EJECUTADOS en esta pasada; no se hicieron escrituras. No se forzó fixture.
+- Auditoría ofensiva, pruebas de carga y scanner externo: no ejecutados.
+- Los resultados automatizados se mantienen diferenciados de la revisión de navegador.
+
+### Pruebas finales
+
+- Backend PostgreSQL: clase `ReceptionPatientAndAuditIntegrationTest`, 6/6; suite completa, 127/127; ambas con Java 21 y base Maven aislada; códigos 0.
+- Frontend determinista: siete suites, 36/36; lint exit 0 (un warning preexistente), typecheck exit 0, build exit 0.
+- `npm audit --json`: se ejecutó correctamente; exit 1 corresponde a vulnerabilidades reportadas, no a fallo de red/herramienta. Conteo y cadenas de dependencia en `reports/npm-audit-review.md`.
+
+La ampliación de pruebas del countQuery confirma los mismos predicados de escape mediante páginas completas, que fuerzan conteo real; los detalles y límites están en `reports/CS-062-search-escaping.md`. No se corrigieron otros hallazgos ni controles.
