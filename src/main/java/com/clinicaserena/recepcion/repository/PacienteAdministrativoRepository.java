@@ -38,10 +38,10 @@ public interface PacienteAdministrativoRepository extends JpaRepository<Paciente
             left join pacientes_administrativos admin on admin.paciente_id = ids.patient_id
             left join cuentas_paciente account on account.paciente_id = ids.patient_id
             where :search = ''
-               or ids.patient_id ilike concat('%', :search, '%')
-               or lower(coalesce(admin.nombre_completo, account.nombre_completo, '')) like lower(concat('%', :search, '%'))
-               or admin.telefono_normalizado like concat('%', :search, '%')
-               or lower(coalesce(admin.email_contacto_normalizado, account.email_normalizado, '')) like lower(concat('%', :search, '%'))
+               or ids.patient_id ilike concat('%', :search, '%') escape '\\'
+               or lower(coalesce(admin.nombre_completo, account.nombre_completo, '')) like lower(concat('%', :search, '%')) escape '\\'
+               or admin.telefono_normalizado like concat('%', :search, '%') escape '\\'
+               or lower(coalesce(admin.email_contacto_normalizado, account.email_normalizado, '')) like lower(concat('%', :search, '%')) escape '\\'
             order by coalesce(admin.creado_en, patient.creado_en) desc nulls last, ids.patient_id
             """,
             countQuery = """
@@ -56,10 +56,10 @@ public interface PacienteAdministrativoRepository extends JpaRepository<Paciente
             left join pacientes_administrativos admin on admin.paciente_id = ids.patient_id
             left join cuentas_paciente account on account.paciente_id = ids.patient_id
             where :search = ''
-               or ids.patient_id ilike concat('%', :search, '%')
-               or lower(coalesce(admin.nombre_completo, account.nombre_completo, '')) like lower(concat('%', :search, '%'))
-               or admin.telefono_normalizado like concat('%', :search, '%')
-               or lower(coalesce(admin.email_contacto_normalizado, account.email_normalizado, '')) like lower(concat('%', :search, '%'))
+               or ids.patient_id ilike concat('%', :search, '%') escape '\\'
+               or lower(coalesce(admin.nombre_completo, account.nombre_completo, '')) like lower(concat('%', :search, '%')) escape '\\'
+               or admin.telefono_normalizado like concat('%', :search, '%') escape '\\'
+               or lower(coalesce(admin.email_contacto_normalizado, account.email_normalizado, '')) like lower(concat('%', :search, '%')) escape '\\'
             """,
             nativeQuery = true)
     Page<ReceptionPatientProjection> search(@Param("search") String search, Pageable pageable);

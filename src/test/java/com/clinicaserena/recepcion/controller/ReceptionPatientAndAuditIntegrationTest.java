@@ -15,6 +15,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.springframework.http.HttpHeaders.CACHE_CONTROL;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -148,6 +150,81 @@ class ReceptionPatientAndAuditIntegrationTest {
                 .andExpect(jsonPath("$.items[0].fullName").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.items[0].phone").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.items[0].email").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void busquedaLiteralEscapaComodinesBarraAcentosYTextoConAparienciaSql() throws Exception {
+        insertSearchPatient("b6200000-0000-0000-0000-000000000001", "CS062 percent token%tail", "6100000001");
+        insertSearchPatient("b6200000-0000-0000-0000-000000000002", "CS062 under token_tail", "6100000002");
+        insertSearchPatient("b6200000-0000-0000-0000-000000000003", "CS062 slash token\\tail", "6100000003");
+        insertSearchPatient("b6200000-0000-0000-0000-000000000004", "CS062 combo %_\\ marker", "6100000004");
+        insertSearchPatient("b6200000-0000-0000-0000-000000000005", "CS062 normal partial Árbol Ñandú", "6100000005");
+        insertSearchPatient("b6200000-0000-0000-0000-000000000006", "CS062' OR '1'='1 --", "6100000006");
+
+        String receptionToken = login("patients.reception@example.test");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "normal partial"))
+                .containsExactly("b6200000-0000-0000-0000-000000000005");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "%"))
+                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000001", "b6200000-0000-0000-0000-000000000004");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "_"))
+                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000002", "b6200000-0000-0000-0000-000000000004");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "\\"))
+                .containsExactlyInAnyOrder("b6200000-0000-0000-0000-000000000003", "b6200000-0000-0000-0000-000000000004");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "%_\\"))
+                .containsExactly("b6200000-0000-0000-0000-000000000004");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "árbol ñandú"))
+                .containsExactly("b6200000-0000-0000-0000-000000000005");
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, "CS062' OR '1'='1 --"))
+                .containsExactly("b6200000-0000-0000-0000-000000000006");
+    }
+
+    @Test
+    void busquedaRespetaLimiteYConservaVaciosYEspacios() throws Exception {
+        String maxLengthSearch = "C" + "x".repeat(99);
+        String maxLengthPatientId = "b6200000-0000-0000-0000-000000000007";
+        insertSearchPatient(maxLengthPatientId, "Prefijo " + maxLengthSearch + " sufijo", "6100000007");
+        String receptionToken = login("patients.reception@example.test");
+
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, maxLengthSearch))
+                .containsExactly(maxLengthPatientId);
+        mockMvc.perform(get("/api/v1/staff/patients")
+                        .header("Authorization", "Bearer " + receptionToken)
+                        .param("search", "x".repeat(101)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PATIENT_SEARCH_TOO_LONG"));
+
+        JsonNode emptySearch = searchPage(receptionToken, "");
+        JsonNode whitespaceSearch = searchPage(receptionToken, "   ");
+        org.assertj.core.api.Assertions.assertThat(whitespaceSearch.path("totalElements").asLong())
+                .isEqualTo(emptySearch.path("totalElements").asLong());
+        org.assertj.core.api.Assertions.assertThat(searchIds(receptionToken, ""))
+                .contains(maxLengthPatientId);
+    }
+
+    private void insertSearchPatient(String patientId, String fullName, String normalizedPhone) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("INSERT INTO pacientes(id,estado,creado_en) VALUES (?, 'ACTIVO', ?)", patientId, now);
+        String phone = "(" + normalizedPhone.substring(0, 3) + ") " + normalizedPhone.substring(3);
+        jdbc.update("INSERT INTO pacientes_administrativos(paciente_id,nombre_completo,telefono,telefono_normalizado,email_contacto,email_contacto_normalizado,creado_por_personal_id,creado_en) VALUES (?,?,?,?,?,?,?,?)",
+                patientId, fullName, phone, normalizedPhone, "cs062." + normalizedPhone + "@example.test",
+                "cs062." + normalizedPhone + "@example.test", RECEPTION_ID, now);
+    }
+
+    private Set<String> searchIds(String receptionToken, String search) throws Exception {
+        JsonNode items = searchPage(receptionToken, search).path("items");
+        Set<String> patientIds = new HashSet<>();
+        items.forEach(item -> patientIds.add(item.path("patientId").asText()));
+        return patientIds;
+    }
+
+    private JsonNode searchPage(String receptionToken, String search) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/staff/patients")
+                        .header("Authorization", "Bearer " + receptionToken)
+                        .param("search", search)
+                        .param("limit", "100"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body);
     }
 
     private String login(String email) throws Exception {
