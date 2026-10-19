@@ -37,11 +37,14 @@ Los worktrees de readiness se crearon nuevos desde estas referencias exactas. La
 - Candidata combinada frontend: deterministas 66/66 PASS, lint/typecheck/build PASS.
 - ESLint emite una advertencia preexistente (`tests/browser-delivery-journey.mjs:80`, variable `staff` no usada); cero errores.
 - La primera ejecución Maven en paralelo falló por límite de conexiones del PostgreSQL aislado (`SQLSTATE 53300`); las tres suites se repitieron secuencialmente en bases nuevas y pasaron con los conteos indicados.
+- `npm ci` reportó 7 advisories HIGH heredados; no se ejecutó `npm audit fix` ni se actualizaron dependencias.
 - Prueba BFF autenticada de agenda no ejecutable: faltan `STAFF_AGENDA_PATIENT_COOKIE` y `STAFF_AGENDA_MEDICO_COOKIE`. Estado **BLOQUEADA**, no PASS. No se generaron sesiones ni credenciales.
 
 CS-062 fue integrado en la candidata backend únicamente para sus dos clases de código y pruebas: `PacienteAdministrativoRepository`, `PacienteAdministrativoService` y `ReceptionPatientAndAuditIntegrationTest`, desde la rama `fix/CS-062-search-escaping` (punta `c70764436c8725771c99af43099cf2af249816dd`, implementación `c99c913`). Sus informes históricos ajenos no se copiaron. CS-022 y CS-028 ya eran ancestros de las bases vigentes y no se reaplicaron.
 
 La migración V17 pasó desde vacío por Maven y desde V16 mediante Flyway. En la actualización V16→V17 se conservó el evento sintético existente con IP nula; `client_ip` quedó nullable/45, la restricción admite `SISTEMA`, los índices previos permanecieron y un arranque posterior informó “No migration necessary”. La cobertura de IP IPv4/IPv6/ausente pasó 3/3.
+
+La validación de base usó PostgreSQL 16 temporal en loopback, bases sintéticas separadas y credenciales solo en el proceso/contenedor. El contenedor, red y volumen temporales fueron eliminados y se verificó que no quedara ninguno.
 
 ## Staging, backups y rollback
 
