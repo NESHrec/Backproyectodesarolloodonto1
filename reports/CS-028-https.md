@@ -33,6 +33,7 @@
 - Gate adicional de autenticación: `PatientAuthControllerIntegrationTest` terminó 11/11 correctas usando un SMTP deliberadamente inaccesible; el backend respondió sin bloquearse y registró `MAIL_DELIVERY_FAILED` con `causeType=ConnectException`, sin exponer secretos.
 - Caddy validó la configuración en la VPS y el despliegue reconstruyó backend y frontend correctamente.
 - Smoke test público: HTTPS 200, HTTP redirige con 308, HSTS/CSP/encabezados defensivos presentes, `X-Powered-By` ausente y `/api/session/csrf` responde 200 con cookie `Secure` y `SameSite`.
+- Prueba real de correo en producción: el registro de QA respondió `202`, el mensaje llegó a la bandeja Gmail de prueba y el enlace generado usa `https://clinicaserena.fyi/verificar-correo`; no se conservaron credenciales ni tokens.
 
 ## Riesgos y pendientes
 
@@ -40,7 +41,7 @@
 - Se comprobó en la VPS que `AUTH_PUBLIC_WEB_URL=https://clinicaserena.fyi`; las cookies verificadas en el flujo CSRF llevan `Secure` y `SameSite`.
 - HSTS con `includeSubDomains` solo debe publicarse cuando todos los subdominios que existan estén preparados para HTTPS.
 - El proyecto declara Java 21 y la suite completa se ejecutó con Java 21.
-- Debe mantenerse monitoreo posterior al despliegue y probar los flujos de correo con un destinatario controlado; no se envió un registro real durante este gate para evitar crear datos de prueba en producción.
+- Debe mantenerse monitoreo posterior al despliegue; el registro de QA se dejó sin verificar para no mantener una cuenta de prueba activa.
 
 ## Rollback
 
