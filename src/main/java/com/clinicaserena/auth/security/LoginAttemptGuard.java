@@ -76,7 +76,6 @@ public class LoginAttemptGuard {
 
     public synchronized void recordSuccess(String accountKey, String remoteAddress) {
         accountAttempts.remove(accountKey);
-        addressAttempts.remove(remoteAddress);
     }
 
     /**

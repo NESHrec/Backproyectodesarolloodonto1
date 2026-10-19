@@ -39,6 +39,13 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Tomcat solo acepta X-Forwarded-* desde proxies internos (loopback/redes
+  # privadas por defecto). El API permanece enlazado detrás del BFF.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      remote-ip-header: x-forwarded-for
+      protocol-header: x-forwarded-proto
 
 clinica:
   media:
