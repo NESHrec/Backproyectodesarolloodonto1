@@ -30,6 +30,7 @@ import java.util.UUID;
 public class PacienteAdministrativoService {
 
     private static final int MAX_LIMIT = 100;
+    private static final int MAX_SEARCH_LENGTH = 100;
     private final PacienteRepository pacienteRepository;
     private final CuentaPacienteRepository patientAccountRepository;
     private final PacienteAdministrativoRepository repository;
@@ -50,13 +51,24 @@ public class PacienteAdministrativoService {
         if (page < 0 || limit < 1 || limit > MAX_LIMIT) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "PAGING_INVALID", "La paginación no es válida");
         }
+        if (search != null && search.codePointCount(0, search.length()) > MAX_SEARCH_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PATIENT_SEARCH_TOO_LONG",
+                    "La búsqueda no puede superar 100 caracteres");
+        }
         String normalizedSearch = search == null ? "" : search.trim();
-        Page<ReceptionPatientProjection> records = repository.search(normalizedSearch, PageRequest.of(page, limit));
+        String escapedSearch = escapeLikeWildcards(normalizedSearch);
+        Page<ReceptionPatientProjection> records = repository.search(escapedSearch, PageRequest.of(page, limit));
         return new AdministrativePatientPageResponse(records.getContent().stream()
                 .map(record -> new AdministrativePatientResponse(record.getPatientId(), record.getFullName(),
                         record.getPhone(), record.getEmail(), record.getRecordType(), record.getPatientAccountLinked(),
                         toOffsetDateTime(record.getCreatedAt())))
                 .toList(), page, limit, records.getTotalElements(), records.hasNext());
+    }
+
+    private String escapeLikeWildcards(String value) {
+        return value.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     @Transactional

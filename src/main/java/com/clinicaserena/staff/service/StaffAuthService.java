@@ -65,7 +65,10 @@ public class StaffAuthService {
         String email = normalizeEmail(request.email());
         String address = clientAddress == null || clientAddress.isBlank() ? "unknown" : clientAddress.trim();
         String key = "staff:" + email + "|" + address;
-        if (!loginAttemptGuard.isAllowed(key, address)) throw invalidCredentials();
+        if (!loginAttemptGuard.isAllowed(key, address)) {
+            audit.recordAnonymousSecurityEvent("STAFF_LOGIN_BLOCKED", address);
+            throw invalidCredentials();
+        }
 
         CuentaPersonal account = accountRepository.findByEmailNormalizado(email).orElse(null);
         boolean passwordMatches = passwordEncoder.matches(request.password(),
@@ -73,6 +76,7 @@ public class StaffAuthService {
         boolean active = account != null && account.getEstado() == EstadoCuentaPersonal.ACTIVA;
         if (!passwordMatches || !active) {
             loginAttemptGuard.recordFailure(key, address);
+            audit.recordAnonymousSecurityEvent("STAFF_LOGIN_FAILED", address);
             throw invalidCredentials();
         }
         loginAttemptGuard.recordSuccess(key, address);
@@ -81,6 +85,7 @@ public class StaffAuthService {
         String rawToken = randomToken();
         sessionRepository.save(SesionPersonal.crear(UUID.randomUUID().toString(), account,
                 TokenHasher.sha256(rawToken), now.plusSeconds(sessionTtlSeconds), now));
+        audit.recordStaffLogin(account.getId(), account.getRol(), "STAFF_LOGIN_SUCCEEDED", address);
         return new LoginResponse(rawToken, "Bearer", sessionTtlSeconds);
     }
 
@@ -93,10 +98,11 @@ public class StaffAuthService {
     }
 
     @Transactional
-    public void logout(StaffPrincipal principal) {
+    public void logout(StaffPrincipal principal, String clientAddress) {
         sessionRepository.findByTokenHash(principal.tokenHash()).ifPresent(session -> {
             if (session.getRevocadaEn() == null) session.revocar(OffsetDateTime.now(ZoneOffset.UTC));
         });
+        audit.recordStaffLogin(principal.accountId(), principal.role(), "STAFF_LOGOUT", clientAddress);
     }
 
     @Transactional

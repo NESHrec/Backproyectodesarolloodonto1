@@ -13,7 +13,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -40,14 +46,76 @@ public class BitacoraService {
                        OffsetDateTime occurredAt) {
         repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), actor.accountId(), "PERSONAL",
                 actor.accountId(), actor.role().name(), action,
-                entityType, entityId, occurredAt));
+                entityType, entityId, occurredAt, currentRequestClientIp()));
     }
 
     @Transactional
     public void recordPatient(PatientPrincipal actor, String action, String entityType, String entityId,
                               OffsetDateTime occurredAt) {
         repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), null, "PACIENTE",
-                actor.accountId(), "PACIENTE", action, entityType, entityId, occurredAt));
+                actor.accountId(), "PACIENTE", action, entityType, entityId, occurredAt, currentRequestClientIp()));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordSecurityEvent(Authentication authentication, String action, HttpServletRequest request) {
+        String actorType = "SISTEMA";
+        String actorId = "anonymous";
+        String actorRole = "ANONYMOUS";
+        String actorPersonalId = null;
+        if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof StaffPrincipal staff) {
+            actorType = "PERSONAL";
+            actorId = staff.accountId();
+            actorRole = staff.role().name();
+            actorPersonalId = staff.accountId();
+        } else if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof PatientPrincipal patient) {
+            actorType = "PACIENTE";
+            actorId = patient.accountId();
+            actorRole = "PACIENTE";
+        }
+        String clientIp = safeClientIp(request.getRemoteAddr());
+        String method = request.getMethod();
+        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), actorPersonalId,
+                actorType, actorId, actorRole, action, "HTTP_REQUEST", safeMethod(method),
+                OffsetDateTime.now(java.time.ZoneOffset.UTC), clientIp));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordStaffLogin(String accountId, RolPersonal role, String action, String clientAddress) {
+        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), accountId,
+                "PERSONAL", accountId, role.name(), action, "STAFF_AUTH", "LOGIN",
+                OffsetDateTime.now(java.time.ZoneOffset.UTC), safeClientIp(clientAddress)));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordPatientAuthentication(String accountId, String action, String clientAddress) {
+        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), null,
+                "PACIENTE", accountId, "PACIENTE", action, "AUTH", "SESSION",
+                OffsetDateTime.now(java.time.ZoneOffset.UTC), safeClientIp(clientAddress)));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordAnonymousSecurityEvent(String action, String clientAddress) {
+        repository.saveAndFlush(BitacoraEvento.registrar(UUID.randomUUID().toString(), null,
+                "SISTEMA", "anonymous", "ANONYMOUS", action, "AUTH", "LOGIN",
+                OffsetDateTime.now(java.time.ZoneOffset.UTC), safeClientIp(clientAddress)));
+    }
+
+    private static String safeMethod(String method) {
+        return method != null && method.matches("[A-Z]{1,10}") ? method : "UNKNOWN";
+    }
+
+    private static String safeClientIp(String address) {
+        return address != null && address.length() <= 45 && address.matches("[0-9A-Fa-f:.]+")
+                ? address : "unknown";
+    }
+
+    private static String currentRequestClientIp() {
+        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes) {
+            return safeClientIp(attributes.getRequest().getRemoteAddr());
+        }
+        return null;
     }
 
     @Transactional(readOnly = true)
@@ -63,7 +131,7 @@ public class BitacoraService {
         List<AuditEventResponse> items = events.getContent().stream()
                 .map(event -> new AuditEventResponse(event.getId(), event.getActorId(), event.getActorTipo(),
                         event.getActorRol(), event.getAccion(),
-                        event.getEntidadTipo(), event.getEntidadId(), event.getOcurridoEn()))
+                        event.getEntidadTipo(), event.getEntidadId(), event.getOcurridoEn(), event.getClientIp()))
                 .toList();
         return new AuditEventPageResponse(items, page, limit, events.getTotalElements(), events.hasNext());
     }

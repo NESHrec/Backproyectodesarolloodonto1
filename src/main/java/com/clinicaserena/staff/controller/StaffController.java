@@ -61,8 +61,8 @@ public class StaffController {
     }
 
     @PostMapping("/auth/logout")
-    public ResponseEntity<Void> logout(Authentication authentication) {
-        authService.logout((StaffPrincipal) authentication.getPrincipal());
+    public ResponseEntity<Void> logout(Authentication authentication, HttpServletRequest httpRequest) {
+        authService.logout((StaffPrincipal) authentication.getPrincipal(), httpRequest.getRemoteAddr());
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 

@@ -84,6 +84,9 @@ class PatientAuthControllerIntegrationTest {
                 .andExpect(jsonPath("$.accessToken").isString())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.expiresInSeconds").value(1800));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_tipo='PACIENTE' "
+                + "AND actor_id=? AND actor_rol='PACIENTE' AND accion='PATIENT_LOGIN_SUCCEEDED' "
+                + "AND client_ip IS NOT NULL", Integer.class, ACCOUNT_ID)).isGreaterThan(0);
     }
 
     @Test
@@ -94,6 +97,8 @@ class PatientAuthControllerIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"))
                 .andExpect(jsonPath("$.message").value("Credenciales inválidas"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='AUTH_LOGIN_FAILED' "
+                + "AND actor_tipo='SISTEMA' AND client_ip IS NOT NULL AND entidad_id='LOGIN'", Integer.class)).isGreaterThan(0);
     }
 
     @Test
@@ -117,6 +122,8 @@ class PatientAuthControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent())
                 .andExpect(header().string(CACHE_CONTROL, "no-store"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_id=? "
+                + "AND accion='PATIENT_LOGOUT' AND client_ip IS NOT NULL", Integer.class, ACCOUNT_ID)).isGreaterThan(0);
 
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());

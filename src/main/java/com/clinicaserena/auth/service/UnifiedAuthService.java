@@ -10,6 +10,7 @@ import com.clinicaserena.auth.repository.CuentaPacienteRepository;
 import com.clinicaserena.auth.repository.SesionPacienteRepository;
 import com.clinicaserena.auth.security.LoginAttemptGuard;
 import com.clinicaserena.auth.security.TokenHasher;
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.common.exception.ApiException;
 import com.clinicaserena.staff.entity.CuentaPersonal;
 import com.clinicaserena.staff.entity.EstadoCuentaPersonal;
@@ -46,6 +47,7 @@ public class UnifiedAuthService {
     private final LoginAttemptGuard loginAttemptGuard;
     private final long patientSessionTtlSeconds;
     private final long staffSessionTtlSeconds;
+    private final BitacoraService audit;
 
     public UnifiedAuthService(
             CuentaPacienteRepository patientAccounts,
@@ -55,7 +57,8 @@ public class UnifiedAuthService {
             PasswordEncoder passwordEncoder,
             LoginAttemptGuard loginAttemptGuard,
             @Value("${clinica.auth.session-ttl-seconds:1800}") long patientSessionTtlSeconds,
-            @Value("${clinica.auth.staff-session-ttl-seconds:1800}") long staffSessionTtlSeconds
+            @Value("${clinica.auth.staff-session-ttl-seconds:1800}") long staffSessionTtlSeconds,
+            BitacoraService audit
     ) {
         this.patientAccounts = patientAccounts;
         this.patientSessions = patientSessions;
@@ -65,6 +68,7 @@ public class UnifiedAuthService {
         this.loginAttemptGuard = loginAttemptGuard;
         this.patientSessionTtlSeconds = patientSessionTtlSeconds;
         this.staffSessionTtlSeconds = staffSessionTtlSeconds;
+        this.audit = audit;
     }
 
     @Transactional
@@ -72,7 +76,10 @@ public class UnifiedAuthService {
         String email = normalizeEmail(request.email());
         String remoteAddress = clientAddress == null || clientAddress.isBlank() ? "unknown" : clientAddress.trim();
         String attemptKey = "unified:" + email + "|" + remoteAddress;
-        if (!loginAttemptGuard.isAllowed(attemptKey, remoteAddress)) throw invalidCredentials();
+        if (!loginAttemptGuard.isAllowed(attemptKey, remoteAddress)) {
+            audit.recordAnonymousSecurityEvent("AUTH_LOGIN_BLOCKED", remoteAddress);
+            throw invalidCredentials();
+        }
 
         CuentaPaciente patient = patientAccounts.findByEmailNormalizado(email).orElse(null);
         CuentaPersonal staff = staffAccounts.findByEmailNormalizado(email).orElse(null);
@@ -80,6 +87,7 @@ public class UnifiedAuthService {
         if (patient != null && staff != null) {
             passwordEncoder.matches(request.password(), DUMMY_PASSWORD_HASH);
             loginAttemptGuard.recordFailure(attemptKey, remoteAddress);
+            audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
             throw invalidCredentials();
         }
 
@@ -90,10 +98,12 @@ public class UnifiedAuthService {
                     && patient.getPaciente().getEstado() == EstadoPaciente.ACTIVO;
             if (!valid) {
                 loginAttemptGuard.recordFailure(attemptKey, remoteAddress);
+                audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
                 throw invalidCredentials();
             }
             loginAttemptGuard.recordSuccess(attemptKey, remoteAddress);
             String token = createPatientSession(patient);
+            audit.recordPatientAuthentication(patient.getId(), "PATIENT_LOGIN_SUCCEEDED", remoteAddress);
             return new UnifiedLoginResponse(token, "Bearer", patientSessionTtlSeconds, "PACIENTE", "PACIENTE");
         }
 
@@ -102,15 +112,18 @@ public class UnifiedAuthService {
                     && staff.getEstado() == EstadoCuentaPersonal.ACTIVA;
             if (!valid) {
                 loginAttemptGuard.recordFailure(attemptKey, remoteAddress);
+                audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
                 throw invalidCredentials();
             }
             loginAttemptGuard.recordSuccess(attemptKey, remoteAddress);
             String token = createStaffSession(staff);
+            audit.recordStaffLogin(staff.getId(), staff.getRol(), "STAFF_LOGIN_SUCCEEDED", remoteAddress);
             return new UnifiedLoginResponse(token, "Bearer", staffSessionTtlSeconds, "PERSONAL", staff.getRol().name());
         }
 
         passwordEncoder.matches(request.password(), DUMMY_PASSWORD_HASH);
         loginAttemptGuard.recordFailure(attemptKey, remoteAddress);
+        audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
         throw invalidCredentials();
     }
 

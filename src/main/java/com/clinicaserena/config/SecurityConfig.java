@@ -3,6 +3,7 @@ package com.clinicaserena.config;
 import com.clinicaserena.auth.security.PatientBearerAuthenticationFilter;
 import com.clinicaserena.staff.security.StaffBearerAuthenticationFilter;
 import com.clinicaserena.common.response.ApiError;
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -20,6 +21,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -57,9 +60,11 @@ public class SecurityConfig {
             HttpSecurity http,
             PatientBearerAuthenticationFilter bearerFilter,
             StaffBearerAuthenticationFilter staffBearerFilter,
+            ObjectProvider<BitacoraService> auditProvider,
             Environment environment
     ) throws Exception {
         boolean developmentDocumentationEnabled = environment.acceptsProfiles(Profiles.of("dev"));
+        BitacoraService audit = auditProvider.getIfAvailable();
 
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -68,8 +73,8 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(unauthorizedEntryPoint())
-                        .accessDeniedHandler(forbiddenHandler()))
+                        .authenticationEntryPoint(unauthorizedEntryPoint(audit))
+                        .accessDeniedHandler(forbiddenHandler(audit)))
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers(HttpMethod.GET,
                                 "/api/v1/health",
@@ -119,9 +124,12 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private AuthenticationEntryPoint unauthorizedEntryPoint() {
-        return (request, response, exception) -> writeError(response,
+    private AuthenticationEntryPoint unauthorizedEntryPoint(BitacoraService audit) {
+        return (request, response, exception) -> {
+            recordAuditSafely(audit, "HTTP_401", request);
+            writeError(response,
                 ApiError.of(UNAUTHORIZED.value(), "UNAUTHENTICATED", "Autenticación requerida"));
+        };
     }
 
     /**
@@ -129,9 +137,23 @@ public class SecurityConfig {
      * contenedor reenvía a /error, donde la solicitud llega sin autenticación y
      * se respondía 401 aunque la sesión fuera válida.
      */
-    private AccessDeniedHandler forbiddenHandler() {
-        return (request, response, exception) -> writeError(response,
+    private AccessDeniedHandler forbiddenHandler(BitacoraService audit) {
+        return (request, response, exception) -> {
+            recordAuditSafely(audit, "HTTP_403", request);
+            writeError(response,
                 ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
+        };
+    }
+
+    private static void recordAuditSafely(BitacoraService audit, String action,
+                                          jakarta.servlet.http.HttpServletRequest request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (audit == null) return;
+        try {
+            audit.recordSecurityEvent(authentication, action, request);
+        } catch (RuntimeException ignored) {
+            // Keep the original security response if the audit store is unavailable.
+        }
     }
 
     private static void writeError(HttpServletResponse response, ApiError error) throws java.io.IOException {
