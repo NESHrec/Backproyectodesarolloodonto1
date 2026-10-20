@@ -125,3 +125,13 @@ Tras la corrección del lockfile:
 La validación backend no pudo repetirse en este entorno: solo está disponible Java 17 y el proyecto requiere Java 21; Docker Desktop está pausado. No se marcaron Maven, PostgreSQL aislado, Mailpit, Caddy, pagos, backup ni rollback como PASS.
 
 **Dictamen actualizado: NO APTO PARA PRODUCCIÓN.** La corrección reproducible del lockfile quedó publicada, pero siguen abiertos los dos casos BFF autenticados, la suite backend con Java 21/PostgreSQL, staging integrado, correo, pagos, backup/rollback y la decisión formal sobre `braces`.
+
+## Revalidación backend adicional — 2026-10-19
+
+La suite backend se repitió en una base PostgreSQL 16.13 local, nueva y exclusiva para QA, usando Java 21.0.12.1 y credenciales de proceso. Las 17 migraciones se aplicaron desde esquema vacío hasta V17 y la ejecución final obtuvo **131/131 PASS**, 0 fallos, 0 errores y 0 omitidas. La base, el usuario y el servicio SMTP temporal fueron eliminados al terminar.
+
+Para las pruebas que envían correo se utilizó un sink SMTP local temporal en `127.0.0.1:1026`; esto valida el comportamiento SMTP de las pruebas, pero **no sustituye la validación de Mailpit en staging**.
+
+La corrección del lockfile frontend está publicada en `1ca8437` y el informe backend actualizado en `f72de2b`. La suite frontend continúa en **76 PASS / 2 FAIL** por ausencia de las dos sesiones QA requeridas para agenda. `npm audit` continúa en 5 HIGH de desarrollo por `braces@3.0.3`; `npm audit --omit=dev` reporta 0 vulnerabilidades de runtime.
+
+Siguen sin estar aprobados ni ejecutados: Caddy → Next/BFF → Spring en staging autorizado, las dos pruebas BFF con sesiones QA reales, Mailpit de staging, pagos simulados, backup restaurable y rollback operativo. Por ello el dictamen permanece **NO APTO PARA PRODUCCIÓN**.
