@@ -28,12 +28,17 @@ interacción con CS-016/038/062. No se publicó esta candidata combinada.
 ## Evidencia ejecutada
 
 - Maven combinado: exit 0; 134 casos contabilizados, 0 fallos, 0 errores y 28 omitidos
-  por condiciones propias de pruebas/entorno.
+  por condiciones propias de pruebas/entorno. La repetición final, con el backend de
+  pruebas aislado y sin el servidor Spring compartiendo la base, quedó en 134 casos,
+  0 fallos, 0 errores y 31 omitidos.
 - Frontend determinista combinado: 73/73 PASS.
 - `npm ci --ignore-scripts`: PASS; auditoría deja 5 HIGH heredados relacionados con
   `braces@3.0.3` y su cadena.
 - ESLint: 0 errores y una advertencia preexistente en
   `tests/browser-delivery-journey.mjs`.
+- Node 22.23.3 LTS: `npm ci`, lint, typecheck, build y la suite frontend completa
+  pasaron. Node 25.9.0 queda fuera del rango soportado y no debe usarse para el
+  release.
 - Typecheck: PASS.
 - Build Next.js: PASS.
 - BFF de agenda con sesiones sintéticas emitidas por el login local: 2/2 PASS;
@@ -66,13 +71,12 @@ candidata no debe desplegarse todavía porque faltan:
   alcance y fecha de revalidación. No se aplicó un downgrade incompatible.
 - Decisión arquitectónica para el rate limit entre varias JVM: Redis/almacenamiento
   compartido, límite en perímetro o despliegue de una sola réplica documentada.
-- Ejecución con una versión Node soportada por el `engines` del proyecto; esta máquina
-  usa Node 25.9.0, que no está en el rango declarado por varias dependencias.
 
 ## Dictamen
 
 **APTO PARA REVISIÓN TÉCNICA E INTEGRACIÓN CONTROLADA. NO APTO PARA PRODUCCIÓN.**
 
-No se hizo push, merge a ramas protegidas ni despliegue. Para cambiar el dictamen se
-deben cerrar los gates oficiales anteriores y repetir las pruebas combinadas en el
-staging autorizado.
+La candidata combinada fue publicada en su rama de integración para revisión; no se
+hizo merge a ramas protegidas ni despliegue. Para cambiar el dictamen se deben cerrar
+los gates oficiales anteriores y repetir las pruebas combinadas en el staging
+autorizado.
