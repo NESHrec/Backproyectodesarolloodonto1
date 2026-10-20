@@ -36,6 +36,35 @@ class LoginAttemptGuardTest {
         assertThat(guard.trackedEntriesForTests()).isLessThanOrEqualTo(4);
     }
 
+    @Test
+    void unLoginCorrectoLimpiaLaCuentaPeroConservaElContadorDeLaDireccion() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-26T15:00:00Z"));
+        LoginAttemptGuard guard = new LoginAttemptGuard(2, 3, 60, 60, 20, clock);
+
+        guard.recordFailure("account-a", "192.0.2.10");
+        guard.recordSuccess("account-a", "192.0.2.10");
+
+        guard.recordFailure("account-a", "192.0.2.11");
+        assertThat(guard.isAllowed("account-a", "192.0.2.11")).isTrue();
+
+        guard.recordFailure("account-b", "192.0.2.10");
+        guard.recordFailure("account-c", "192.0.2.10");
+        assertThat(guard.isAllowed("account-d", "192.0.2.10")).isFalse();
+    }
+
+    @Test
+    void desbloqueaCuentaYDireccionCuandoExpiranVentanaYCooldown() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-26T15:00:00Z"));
+        LoginAttemptGuard guard = new LoginAttemptGuard(2, 2, 10, 15, 20, clock);
+
+        guard.recordFailure("account-a", "192.0.2.10");
+        guard.recordFailure("account-a", "192.0.2.10");
+        assertThat(guard.isAllowed("account-a", "192.0.2.10")).isFalse();
+
+        clock.advanceSeconds(16);
+        assertThat(guard.isAllowed("account-a", "192.0.2.10")).isTrue();
+    }
+
     private static final class MutableClock extends Clock {
         private Instant instant;
 
