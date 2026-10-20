@@ -1,5 +1,6 @@
 package com.clinicaserena.config;
 
+import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.auth.security.PatientBearerAuthenticationFilter;
 import com.clinicaserena.staff.security.StaffBearerAuthenticationFilter;
 import com.clinicaserena.common.response.ApiError;
@@ -19,6 +20,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
@@ -130,8 +133,16 @@ public class SecurityConfig {
      * se respondía 401 aunque la sesión fuera válida.
      */
     private AccessDeniedHandler forbiddenHandler() {
-        return (request, response, exception) -> writeError(response,
-                ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
+        return (request, response, exception) -> {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof PatientPrincipal) {
+                writeError(response,
+                        ApiError.of(UNAUTHORIZED.value(), "UNAUTHENTICATED", "Autenticación requerida"));
+                return;
+            }
+            writeError(response,
+                    ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
+        };
     }
 
     private static void writeError(HttpServletResponse response, ApiError error) throws java.io.IOException {
