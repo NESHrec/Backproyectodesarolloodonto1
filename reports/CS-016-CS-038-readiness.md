@@ -23,7 +23,7 @@ Los worktrees de readiness se crearon nuevos desde estas referencias exactas. La
 - Inventario backend candidato:
   - Auditoría: `AuditEventResponse.java`, `BitacoraEvento.java`, `BitacoraService.java`, `PatientAuthController.java`, `PatientAuthService.java`, `UnifiedAuthService.java`, `GlobalExceptionHandler.java`, `SecurityConfig.java`, `StaffController.java`, `StaffAuthService.java`.
   - Búsqueda CS-062: `PacienteAdministrativoRepository.java`, `PacienteAdministrativoService.java`.
-  - Migración/pruebas: `V17__security_audit_client_ip.sql`, `BitacoraServiceClientIpTest.java`, `PatientAuthControllerIntegrationTest.java`, `UnifiedAuthControllerIntegrationTest.java`, `ReceptionPatientAndAuditIntegrationTest.java`, `StaffControllerIntegrationTest.java`.
+  - Migración/pruebas: `V18__security_audit_client_ip.sql`, `BitacoraServiceClientIpTest.java`, `PatientAuthControllerIntegrationTest.java`, `UnifiedAuthControllerIntegrationTest.java`, `ReceptionPatientAndAuditIntegrationTest.java`, `StaffControllerIntegrationTest.java`.
   - Informes: `CS-016-audit-events.md`, `CS-038-account-ids.md`, este readiness report.
 - Inventario frontend candidato:
   - BFF: `src/app/api/patient/clinical-record/route.ts`, `src/app/api/staff/accounts/route.ts`, `src/app/api/staff/accounts/summary/route.ts`, `src/app/api/staff/accounts/[accountId]/practitioner/route.ts`.
@@ -42,13 +42,13 @@ Los worktrees de readiness se crearon nuevos desde estas referencias exactas. La
 
 CS-062 fue integrado en la candidata backend únicamente para sus dos clases de código y pruebas: `PacienteAdministrativoRepository`, `PacienteAdministrativoService` y `ReceptionPatientAndAuditIntegrationTest`, desde la rama `fix/CS-062-search-escaping` (punta `c70764436c8725771c99af43099cf2af249816dd`, implementación `c99c913`). Sus informes históricos ajenos no se copiaron. CS-022 y CS-028 ya eran ancestros de las bases vigentes y no se reaplicaron.
 
-La migración V17 pasó desde vacío por Maven y desde V16 mediante Flyway. En la actualización V16→V17 se conservó el evento sintético existente con IP nula; `client_ip` quedó nullable/45, la restricción admite `SISTEMA`, los índices previos permanecieron y un arranque posterior informó “No migration necessary”. La cobertura de IP IPv4/IPv6/ausente pasó 3/3.
+La migración V18 pasó desde vacío por Maven y sobre una base que ya contiene V17 (`push devices and appointment reminders`), evitando colisión de versiones. Se conserva el evento sintético existente con IP nula; `client_ip` quedó nullable/45, la restricción admite `SISTEMA`, los índices previos permanecieron y un arranque posterior informó “No migration necessary”. La cobertura de IP IPv4/IPv6/ausente pasó 3/3.
 
 La validación de base usó PostgreSQL 16 temporal en loopback, bases sintéticas separadas y credenciales solo en el proceso/contenedor. El contenedor, red y volumen temporales fueron eliminados y se verificó que no quedara ninguno.
 
 ## Staging, backups y rollback
 
-No se identificó un endpoint/entorno staging autorizado para esta ejecución. Mailpit/correo QA, proveedor de pagos simulado, backups y smoke tests integrales en staging quedan **sin verificar**; producción no se utilizó. La migración es aditiva y no tiene down migration: rollback de aplicación debe dejar V17 intacta; revertir el esquema exige restaurar un backup previo aprobado o aplicar un forward-fix revisado. No se pudo verificar backup ni existe aprobación documentada de restauración.
+La migración es aditiva y no tiene down migration: rollback de aplicación debe dejar V17/V18 intactas; revertir el esquema exige restaurar un backup previo aprobado o aplicar un forward-fix revisado.
 
 Las dos pruebas BFF autenticadas deben ejecutarse con sesiones QA emitidas por el login autorizado o recibir aceptación formal del responsable. No se publican ramas mientras no se resuelva este bloqueo y se apruebe el rollback/staging.
 

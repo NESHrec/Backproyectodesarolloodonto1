@@ -20,7 +20,7 @@ La IP usa la dirección resuelta por Servlet/Spring Forwarded Headers. El proxy 
 
 ### Backend
 
-- `src/main/resources/db/migration/V17__security_audit_client_ip.sql`
+- `src/main/resources/db/migration/V18__security_audit_client_ip.sql`
 - `src/main/resources/application.yml`
 - `src/main/java/com/clinicaserena/auditoria/dto/AuditEventResponse.java`
 - `src/main/java/com/clinicaserena/auditoria/entity/BitacoraEvento.java`
@@ -51,14 +51,14 @@ La IP usa la dirección resuelta por Servlet/Spring Forwarded Headers. El proxy 
 - Typecheck: PASS.
 - Build Next.js de producción: PASS.
 - `git diff --check`: PASS.
-- Migración V17: PASS desde base vacía (suite combinada), desde V16 con conservación de un evento sintético existente y sin IP, y en repetición sin migraciones pendientes. Columna nullable de 45 caracteres, restricción `SISTEMA` y ambos índices auditados.
+- Migración V18: PASS desde base vacía y desde una base con V17 preexistente; conserva los eventos históricos y deja `client_ip` nullable. Columna nullable de 45 caracteres, restricción `SISTEMA` y ambos índices auditados.
 - Las dos pruebas de `staff-agenda-bff.test.ts` requieren cookies de sesiones QA entregadas fuera del código. No se inventaron cookies; esas dos pruebas de red no formaron parte de la suite determinista final.
 
 Las pruebas Maven usaron PostgreSQL 16.15 temporal, aislado, publicado únicamente en loopback, con identidad exclusiva para esta corrida. La migración quedó aplicada a esa base temporal; al finalizar se eliminaron contenedor, red y volumen. No se usó una base compartida ni productiva.
 
 ## Compatibilidad y riesgos
 
-- La migración agrega una columna nullable y permite `SISTEMA`; los registros anteriores conservan `client_ip = NULL`.
+- La migración V18 agrega una columna nullable y permite `SISTEMA`; los registros anteriores conservan `client_ip = NULL`. Usa V18 porque producción ya reserva V17 para otra migración.
 - La respuesta de auditoría agrega `clientIp`. El frontend coordinado acepta `SISTEMA` y muestra la IP; desplegar el consumidor actualizado junto con el backend evita que validadores antiguos rechacen ese nuevo valor de actor.
 - La base vigente ya configura `forward-headers-strategy` como `framework` con valor predeterminado `framework`; se conservó su variable de despliegue existente en vez de reemplazarla por el valor constante del cambio original.
 - Los errores de persistencia de auditoría no reemplazan la respuesta original de autenticación/seguridad. Si la base de auditoría no está disponible, el evento puede no persistirse.
