@@ -84,3 +84,34 @@ La base no debe retrocederse con una down migration destructiva. Conservar el ba
 ## Dictamen
 
 **NO APTO PARA PRODUCCIÓN** hasta completar la validación del staging, la regresión manual y una decisión explícita para rate limit horizontal y los cinco hallazgos npm restantes. La publicación de la rama autoriza únicamente revisión QA/DevOps.
+
+## Revalidación QA/DevOps local con Docker — 2026-10-19
+
+Durante la revisión se detectó y corrigió un defecto de contrato entre backend y BFF: un token válido de paciente usado contra `/staff/agenda` devolvía `403`, aunque debe tratarse como una sesión no autenticada para esa frontera y devolver `401`. Se corrigieron ambos lados:
+
+- Backend `SecurityConfig`: `PatientPrincipal` recibe `401 UNAUTHENTICATED`; un usuario de personal autenticado sin permiso conserva `403 FORBIDDEN`. Commit publicado: `72d7a9b6c14dcaa75c8dd108f0a0c2f0f854ec30`.
+- Frontend `staff-proxy.ts`: normaliza la respuesta `401` del backend a `{ ok: false, reason: "expired" }`. Commit publicado: `d2e5da781bfadbaa3e5b34c4cb1aa99e87bac900`.
+
+Resultados posteriores:
+
+- BFF autenticado de agenda con sesiones QA sintéticas: **2/2 PASS**.
+- Suite frontend completa con esas sesiones: **77/77 PASS**.
+- Maven completo en PostgreSQL Docker nuevo y exclusivo: **128/128 PASS**, 0 fallos, 0 errores, 0 omitidas.
+- `ControlledClockBillingIntegrationTest`: PASS, incluyendo cobro, pagos parciales, idempotencia y pago final.
+- Frontend `npm ci`, lint, typecheck y build: PASS; queda una advertencia preexistente de `tests/browser-delivery-journey.mjs:80`.
+- `caddy validate` con Caddy 2.10 y el `deploy/Caddyfile`: PASS.
+- Flujo local real `Caddy → Next/BFF → Spring`: PASS para login de ADMIN y consulta de sesión; la respuesta llegó con `Via: 1.1 Caddy`.
+- Registro real local a través de Caddy/BFF/Spring: PASS; Mailpit Docker recibió el correo de verificación.
+- Backup/restore Docker local: PASS; `pg_dump -Fc` restaurado en otra base y Flyway V16 con 24 tablas verificado.
+- `npm audit --omit=dev`: PASS, sin vulnerabilidades de runtime. Auditoría completa: siguen 5 HIGH transitivas por `braces@3.0.3`.
+
+La validación local usó el proyecto Docker `cs001002qa`, PostgreSQL 16, Mailpit 1.27 y Caddy 2.10, todos con datos sintéticos. Esto demuestra el comportamiento del artefacto, pero no sustituye el staging administrado: no se verificaron certificados, firewall, listeners externos, CIDR real, secretos aprovisionados ni rollback del entorno oficial. Node disponible en esta máquina fue `v25.9.0`; debe homologarse el runtime soportado por el proyecto antes del release.
+
+## Estado publicado después de la corrección
+
+- Backend `fix/CS-001-002-rate-limit`: `72d7a9b6c14dcaa75c8dd108f0a0c2f0f854ec30`.
+- Frontend `fix/CS-001-002-rate-limit`: `d2e5da781bfadbaa3e5b34c4cb1aa99e87bac900`.
+- Ambos worktrees están limpios y `git diff --check` pasa.
+- No se modificaron `main`, `desarrollo` ni `security/integration`; no hubo merge ni despliegue.
+
+El dictamen continúa **NO APTO PARA PRODUCCIÓN** hasta documentar la decisión de rate limit horizontal, resolver o aceptar formalmente `braces`, ejecutar regresión manual y validar el staging oficial con backup/rollback.

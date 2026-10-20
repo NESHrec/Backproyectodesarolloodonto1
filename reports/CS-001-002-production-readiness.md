@@ -65,3 +65,9 @@ Manuales NO EJECUTADAS: todos los recorridos anteriores en navegador y contra el
 ## Condiciones para cambiar el dictamen
 
 El dictamen solo puede cambiar cuando el equipo aporte evidencia verificable del staging para Caddy, listeners/firewall, regresión manual, backup/rollback y decisión horizontal, y cuando el gate de dependencias sea resuelto o aceptado formalmente.
+
+## Addendum de revalidación local — 2026-10-19
+
+Se corrigió el contrato de autorización paciente/personal y se publicaron los commits backend `72d7a9b6c14dcaa75c8dd108f0a0c2f0f854ec30` y frontend `d2e5da781bfadbaa3e5b34c4cb1aa99e87bac900`. La revalidación obtuvo BFF de agenda **2/2 PASS**, frontend **77/77 PASS**, Maven **128/128 PASS** en una base PostgreSQL Docker nueva, Caddy validado, registro con correo recibido por Mailpit y backup/restore local PASS.
+
+Esta corrida sí comprobó el flujo técnico en contenedores locales, pero no fue el staging administrado. Permanecen como gates de producción: acceso externo y firewall del staging, certificados y secretos reales, regresión manual completa, rollback del artefacto oficial, rate limit horizontal, decisión formal sobre `braces@3.0.3` y homologación de Node compatible. Por lo tanto, el dictamen no cambia: **NO APTO PARA PRODUCCIÓN**.
