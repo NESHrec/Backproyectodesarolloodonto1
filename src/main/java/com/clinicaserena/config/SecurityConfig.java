@@ -1,5 +1,6 @@
 package com.clinicaserena.config;
 
+import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.auth.security.PatientBearerAuthenticationFilter;
 import com.clinicaserena.staff.security.StaffBearerAuthenticationFilter;
 import com.clinicaserena.common.response.ApiError;
@@ -139,9 +140,16 @@ public class SecurityConfig {
      */
     private AccessDeniedHandler forbiddenHandler(BitacoraService audit) {
         return (request, response, exception) -> {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof PatientPrincipal) {
+                recordAuditSafely(audit, "HTTP_401", request);
+                writeError(response,
+                    ApiError.of(UNAUTHORIZED.value(), "UNAUTHENTICATED", "Autenticación requerida"));
+                return;
+            }
             recordAuditSafely(audit, "HTTP_403", request);
             writeError(response,
-                ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
+                    ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
         };
     }
 
