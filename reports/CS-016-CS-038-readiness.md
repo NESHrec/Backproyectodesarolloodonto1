@@ -141,3 +141,33 @@ Siguen sin estar aprobados ni ejecutados: Caddy → Next/BFF → Spring en stagi
 Se creó una PostgreSQL QA temporal con V17 aplicada, se generó un `pg_dump` en formato custom, se restauró en una segunda base temporal y se verificó `flyway_schema_history` en versión 17 y 24 tablas públicas. Resultado: **backup/restore local PASS**. Las bases y el usuario temporales fueron eliminados al finalizar.
 
 Esta prueba no constituye todavía un rollback de aplicación ni valida la recuperación de un staging o producción reales. El rollback operativo y la preservación de V17 siguen pendientes de una ejecución controlada sobre el entorno autorizado.
+
+## Correcciones y revalidación QA/DevOps — 2026-10-19
+
+Se corrigieron dos defectos reproducibles encontrados durante la revisión de la candidata:
+
+- Frontend: `src/modules/auth/staff-proxy.ts` traduce una respuesta `401` del backend a `{ ok: false, reason: "expired" }`, que es el contrato del BFF para una sesión vencida. Commit publicado: `2f71d5770d1ccf45a0819ab592dd776e8ff70ca0`.
+- Backend: `SecurityConfig.forbiddenHandler` distingue un `PatientPrincipal` autenticado contra una ruta de personal y responde `401 UNAUTHENTICATED`; conserva `403 FORBIDDEN` para un usuario de personal sin permiso. Commit publicado: `7244a9199bfc4f66573389d117da71f9e74b3002`.
+
+Revalidación posterior a las correcciones:
+
+- BFF autenticado de agenda con sesiones QA sintéticas emitidas por los endpoints de login: **2/2 PASS**. No se imprimieron ni se guardaron tokens en el repositorio.
+- Suite frontend completa: **78/78 PASS**, incluyendo los dos casos BFF que antes estaban bloqueados.
+- `npm ci`: PASS con el lockfile publicado en `1ca8437`.
+- lint, typecheck y build frontend: PASS; permanece únicamente la advertencia preexistente de `tests/browser-delivery-journey.mjs:80`.
+- `npm audit`: permanecen 5 HIGH de desarrollo por `braces@3.0.3`; no existe versión corregida publicada y no se aplicó el downgrade mayor sugerido por npm. `npm audit --omit=dev`: 0 vulnerabilidades de runtime.
+- Suite backend completa después del cambio de seguridad: **131/131 PASS**, 0 fallos, 0 errores y 0 omitidas, usando Java 21.0.12.1 y PostgreSQL 16.13 aislado.
+- Migración V17: PASS desde esquema vacío; la repetición confirmó “No migration necessary” en V17.
+- Backup/restore local: PASS mediante `pg_dump` custom y `pg_restore` a una segunda base temporal; versión Flyway 17 y 24 tablas públicas verificadas. Los recursos temporales fueron eliminados.
+- `git diff --check`: PASS y worktrees limpios después de publicar ambos commits.
+
+Estado remoto actual de la candidata:
+
+- Backend `integration/cs016-cs038-readiness`: `7244a9199bfc4f66573389d117da71f9e74b3002`.
+- Frontend `integration/cs016-cs038-readiness`: `2f71d5770d1ccf45a0819ab592dd776e8ff70ca0`.
+
+Estos resultados cierran los bloqueos reproducibles de lockfile, Java 21, backend aislado y BFF autenticado. No sustituyen las validaciones externas que aún no se pudieron ejecutar: flujo real Caddy → Next/BFF → Spring en staging autorizado, Mailpit/correo QA de staging, pagos simulados, backup/restore y rollback operativo del entorno autorizado, ni una decisión formal de seguridad sobre `braces@3.0.3`. Tampoco se verificó un despliegue en staging con SHAs registrados.
+
+## Dictamen final de esta corrida
+
+**NO APTO PARA PRODUCCIÓN — listo para integración controlada y validación de staging.** No se hizo merge a `main`, `desarrollo` ni `security/integration`, y no se desplegó producción. El paso siguiente autorizado es ejecutar los gates de staging con responsables y SHAs registrados; solo después de que todos pasen o exista aceptación formal documentada puede emitirse una aprobación de producción.
