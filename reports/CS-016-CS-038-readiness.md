@@ -135,3 +135,9 @@ Para las pruebas que envían correo se utilizó un sink SMTP local temporal en `
 La corrección del lockfile frontend está publicada en `1ca8437` y el informe backend actualizado en `f72de2b`. La suite frontend continúa en **76 PASS / 2 FAIL** por ausencia de las dos sesiones QA requeridas para agenda. `npm audit` continúa en 5 HIGH de desarrollo por `braces@3.0.3`; `npm audit --omit=dev` reporta 0 vulnerabilidades de runtime.
 
 Siguen sin estar aprobados ni ejecutados: Caddy → Next/BFF → Spring en staging autorizado, las dos pruebas BFF con sesiones QA reales, Mailpit de staging, pagos simulados, backup restaurable y rollback operativo. Por ello el dictamen permanece **NO APTO PARA PRODUCCIÓN**.
+
+### Prueba local adicional de backup/restore
+
+Se creó una PostgreSQL QA temporal con V17 aplicada, se generó un `pg_dump` en formato custom, se restauró en una segunda base temporal y se verificó `flyway_schema_history` en versión 17 y 24 tablas públicas. Resultado: **backup/restore local PASS**. Las bases y el usuario temporales fueron eliminados al finalizar.
+
+Esta prueba no constituye todavía un rollback de aplicación ni valida la recuperación de un staging o producción reales. El rollback operativo y la preservación de V17 siguen pendientes de una ejecución controlada sobre el entorno autorizado.
