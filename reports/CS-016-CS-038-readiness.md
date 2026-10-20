@@ -55,3 +55,41 @@ Las dos pruebas BFF autenticadas deben ejecutarse con sesiones QA emitidas por e
 ## Dictamen
 
 **BLOQUEADO** — suites individuales y combinada aprobadas, pero pruebas BFF autenticadas críticas sin sesión QA, staging/backups/servicios simulados no verificados y rollback operativo aún no aprobado. No publicar ramas, mergear ni desplegar.
+
+## Addendum de readiness — 2026-10-19
+
+### Pruebas BFF autenticadas de agenda
+
+Las variables de proceso `STAFF_AGENDA_PATIENT_COOKIE` y `STAFF_AGENDA_MEDICO_COOKIE` no están configuradas. Al ejecutar la suite, las dos pruebas dependientes de esas sesiones fallaron en la validación previa de cookie requerida; no se llamaron como PASS ni se fabricaron sesiones, cookies o datos. Las otras 76 pruebas del conjunto frontend pasaron. Pendiente: responsable QA debe proporcionar un mecanismo seguro para que el proceso local obtenga sesiones de QA emitidas por el login autorizado; no pegar cookies/tokens en chat ni guardarlos en archivos. Hasta entonces siguen sin evidenciarse autorización de agenda por rol, 401/403 autenticados, cookies emitidas en vivo, ausencia de Bearer en navegador y limpieza de fixtures.
+
+### Staging, correo, pagos y recuperación
+
+La inspección documental disponible no identifica un destino staging vigente y autorizado, responsable operativo, SHAs desplegados, PostgreSQL aislada asignada, Mailpit/correo QA, simulador de pagos autorizado ni Caddyfile/Compose vigente para ese entorno. Los informes históricos de Caddy y una ruta de respaldo de una VPS no prueban que ese destino sea staging ni autorizan su uso. No se hicieron solicitudes de registro/correo, recuperación, pagos ni operaciones contra una VPS. Pendiente: release/infra debe entregar esos datos y autorizar el entorno; QA debe confirmar cuentas sintéticas y limpieza.
+
+No se encontró evidencia de un procedimiento oficial aprobado para backup/restore y rollback de la migración V17. Propuesta **NO APROBADA** para que DBA/release owner la revise: tomar un `pg_dump` pre-migración de una base aislada; restaurarlo en otra base desechable y comprobar consistencia; aplicar V17 y probar el arranque; conservar imagen/configuración anterior. Si se revierte solo la aplicación, dejar V17 intacta; para problema de esquema, usar forward-fix revisado o restauración de backup con aprobación explícita. No ejecutar `flyway clean` ni restaurar datos reales.
+
+### Auditoría de dependencias frontend
+
+En la candidata frontend `4d9266c34351f64f80ae9b197aa6ee3a89f38e31`, `npm ci` inicial y `npm audit --json` encontraron 7 HIGH. `npm explain` identificó `sharp@0.35.4` desde Next 16.3.8, `source-map-js@1.2.1` por Tailwind/PostCSS/jsdom y `braces@3.0.3` por eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch. Se actualizaron puntualmente, dentro de rangos ya admitidos, sharp a 0.35.5 y source-map-js a 1.2.2 mediante `npm update sharp source-map-js`; no se ejecutó `npm audit fix` ni un `npm update` general. Reinstalación `npm ci` desde el lock resultante: PASS. El audit actual informa 0 Critical, 5 HIGH, todos atribuibles a `braces@3.0.3` (GHSA-vfj7-8cjw-p6xm, sin versión corregida publicada); la sugerencia automática de npm requiere bajar `eslint-config-next` a 14.2.35, cambio mayor incompatible que no se aplicó. `package.json` no cambió; `package-lock.json` es el único archivo frontend modificado.
+
+Después de actualizar esas dependencias: 76/76 pruebas frontend ejecutables excluyendo las dos pruebas BFF con sesión ausente; lint PASS con una advertencia preexistente en `tests/browser-delivery-journey.mjs:80`; typecheck PASS; build PASS. La suite completa, incluidas las dos pruebas bloqueadas, reporta 76 PASS / 2 FAIL por ausencia de las cookies de sesión requeridas. `git diff --check` PASS.
+
+### Estado Git de esta continuación
+
+Frontend permanece en `integration/cs016-cs038-readiness`, HEAD `4d9266c34351f64f80ae9b197aa6ee3a89f38e31`; solo `package-lock.json` está modificado, sin staging. Backend permanece en `integration/cs016-cs038-readiness`, HEAD `7b225e412ef54b7431406f6b0827b123946b10d2`; este addendum es el único cambio local de esta continuación, sin staging. No hubo commit, push, merge, despliegue, uso de producción ni exposición de secretos.
+
+## Revalidación previa a publicación para revisión — 2026-10-19
+
+- Frontend `npm ci`: PASS, reproducible con el lock actualizado.
+- Pruebas frontend excluyendo los dos casos que requieren sesión QA: 76/76 PASS.
+- Suite frontend completa: 76 PASS / 2 FAIL al exigir `STAFF_AGENDA_PATIENT_COOKIE` y `STAFF_AGENDA_MEDICO_COOKIE`; las pruebas autenticadas no alcanzaron sus solicitudes y permanecen sin validar.
+- Frontend lint: PASS, una advertencia preexistente en `tests/browser-delivery-journey.mjs:80`; typecheck: PASS; build: PASS.
+- `npm audit --json`: 0 Critical, 5 HIGH por `braces@3.0.3`; no se aceptó el riesgo ni se ejecutó `npm audit fix`.
+- Backend `mvnw test`: 131/131 PASS, 0 fallos/errores/omitidas. PostgreSQL 16.15 en contenedor temporal, base y usuario sintéticos, bind loopback; V17 aplicada desde esquema vacío. El contenedor fue eliminado después y no se usaron datos reales.
+- `git diff --check`: PASS en ambos repositorios. Sin cambios staged ni rutas sin resolver.
+
+No se ejecutaron: BFF autenticado de agenda; validación de staging; Caddy → Next/BFF → Spring; Mailpit/correo QA; pagos simulados; backup restaurable, restauración ni rollback operativo. Tampoco se ejecutaron flujos de registro, verificación/recuperación de correo o pagos contra proveedor alguno. Requieren la evidencia y autorizaciones de QA, Release/DevOps y DBA detalladas arriba.
+
+La Scrum Master autorizó publicar estas candidatas únicamente para revisión de QA/DevOps. Esa autorización no implica aceptación del riesgo `braces`, aprobación de rollback, ni autorización de producción. Estado de publicación en este informe: validaciones previas completadas; commits/push pendientes de esta corrida.
+
+**Dictamen: NO APTO PARA PRODUCCIÓN.** Tras el push autorizado, el estado de entrega será `PUBLICADO PARA REVISIÓN QA/DEVOPS — NO APTO PARA PRODUCCIÓN`. Los gates externos y el hallazgo `braces` permanecen abiertos. No hacer merge a main/desarrollo/security/integration ni desplegar producción.
