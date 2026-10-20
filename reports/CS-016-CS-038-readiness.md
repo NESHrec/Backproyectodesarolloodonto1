@@ -101,3 +101,27 @@ La Scrum Master autorizó publicar estas candidatas únicamente para revisión d
 - No se publicaron cambios a `main`, `desarrollo` ni `security/integration`; no hubo merge ni despliegue.
 
 Los gates externos y el hallazgo `braces` permanecen abiertos. **Estado: `PUBLICADO PARA REVISIÓN QA/DEVOPS — NO APTO PARA PRODUCCIÓN`.** No hacer merge a main/desarrollo/security/integration ni desplegar producción hasta que se aporten y aprueben las evidencias pendientes.
+
+## Revalidación QA/DevOps posterior a la publicación — 2026-10-19
+
+Se revisaron las ramas publicadas en clones limpios:
+
+- Backend: `integration/cs016-cs038-readiness` en `258c7cefc329a44231ca03c42ead26c982a87fdb`.
+- Frontend: `integration/cs016-cs038-readiness` actualizado a `1ca8437` después de corregir el lockfile.
+- `git diff --check`: PASS en ambos repositorios.
+
+El `package-lock.json` publicado inicialmente no era reproducible con `npm ci`: faltaban `@emnapi/core@1.11.3` y `@emnapi/runtime@1.11.3`. Se regeneró únicamente el lockfile, se verificó la instalación limpia con npm 10.9.2 y se publicó el commit frontend `1ca8437`.
+
+Tras la corrección del lockfile:
+
+- `npm ci`: PASS.
+- lint: PASS, con una advertencia preexistente en `tests/browser-delivery-journey.mjs:80`.
+- typecheck: PASS.
+- build: PASS.
+- pruebas frontend: 76 PASS / 2 FAIL; las dos fallas siguen siendo las pruebas BFF autenticadas de agenda por ausencia de `STAFF_AGENDA_PATIENT_COOKIE` y `STAFF_AGENDA_MEDICO_COOKIE`.
+- `npm audit`: 5 HIGH por `braces@3.0.3`, sin versión corregida publicada; el arreglo automático propone un downgrade mayor de `eslint-config-next` y no se aplicó.
+- `npm audit --omit=dev`: 0 vulnerabilidades de runtime, pero el riesgo de herramientas de desarrollo permanece abierto y requiere mitigación o aceptación formal.
+
+La validación backend no pudo repetirse en este entorno: solo está disponible Java 17 y el proyecto requiere Java 21; Docker Desktop está pausado. No se marcaron Maven, PostgreSQL aislado, Mailpit, Caddy, pagos, backup ni rollback como PASS.
+
+**Dictamen actualizado: NO APTO PARA PRODUCCIÓN.** La corrección reproducible del lockfile quedó publicada, pero siguen abiertos los dos casos BFF autenticados, la suite backend con Java 21/PostgreSQL, staging integrado, correo, pagos, backup/rollback y la decisión formal sobre `braces`.
