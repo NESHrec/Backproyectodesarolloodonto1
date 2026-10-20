@@ -1,106 +1,86 @@
-# CS-001 / CS-002 — Rate Limiting Login
+# CS-001 / CS-002 — Rate limiting de login
 
-## Responsable
+Fecha de validación: 2026-10-19
 
-Erik
+Responsable de ejecución: Codex, bajo autorización del equipo Scrum/QA/DevOps
 
-## Rama
+Rama en ambos repositorios: `fix/CS-001-002-rate-limit`
 
-`fix/CS-001-002-rate-limit`
+## Bases y commits recibidos
 
-## SHA base frontend
+- Backend: base `4dbe347c7face9cf02f892b3262331cf633a4bd7`; commit recibido `777e0aad3199ba8d49b1cdc84e16bbaabff3b11b`.
+- Frontend: base `ebf7fbe723416a45ad43c3357b2a1a9c18c2151a`; commit recibido `30b25d3d91e0f963aaeef34e4be94b7e217b93fb`.
 
-`ebf7fbe723416a45ad43c3357b2a1a9c18c2151a`
+## Problemas corregidos
 
-## SHA base backend
+1. Un login válido ya no elimina el contador por IP; solo limpia el contador de la cuenta autenticada.
+2. El BFF ya no considera confiable una `X-Forwarded-For` solo por tener formato IPv4/IPv6.
+3. Caddy elimina las cabeceras reenviadas aportadas por el cliente, establece valores propios y autentica el salto con `TRUSTED_PROXY_SHARED_SECRET`.
+4. El BFF ignora los forwarded headers si el secreto no existe, tiene menos de 32 caracteres o no coincide mediante comparación de tiempo constante.
+5. CS-028 queda aplicado en el BFF: cookies `Secure`, protocolo y host reenviados solo se aceptan del proxy autenticado.
+6. Spring escucha en `127.0.0.1` por defecto y Tomcat limita forwarded headers mediante `TRUSTED_PROXY_CIDR`; en contenedores debe usarse una red privada sin puerto publicado.
+7. Se actualizaron de forma dirigida `sharp` a 0.35.5 y `source-map-js` a 1.2.2 mediante `overrides`.
 
-`4dbe347c7face9cf02f892b3262331cf633a4bd7`
-
-## Causa
-
-El limitador mantenía contadores separados por cuenta y por dirección, pero `recordSuccess` eliminaba ambos. Un acceso correcto podía reiniciar el contador por IP y permitir nuevos intentos. Además, el BFF no propagaba la IP entregada por Caddy, por lo que Spring observaba la dirección compartida del BFF.
-
-## Archivos modificados
+## Diff revisado
 
 Backend:
 
-- `src/main/java/com/clinicaserena/auth/security/LoginAttemptGuard.java`
-- `src/main/resources/application.yml`
-- `src/test/java/com/clinicaserena/auth/security/LoginAttemptGuardTest.java`
-- `src/test/java/com/clinicaserena/auth/controller/ForwardedLoginRateLimitIntegrationTest.java`
-- `reports/CS-001-002-rate-limit.md`
+- `LoginAttemptGuard.java`: conserva el estado por IP después de login exitoso.
+- `application.yml`: estrategia native, headers Tomcat, bind loopback y allowlist configurable del BFF.
+- `ForwardedLoginRateLimitIntegrationTest.java` y `LoginAttemptGuardTest.java`: bloqueo por IP/cuenta, dos IP, éxito intercalado y expiración.
+- Informes de validación.
 
 Frontend:
 
-- `src/app/api/session/login/route.ts`
-- `tests/unified-login-route.test.ts`
+- `src/modules/auth/trusted-proxy.ts`: autenticación del salto de proxy.
+- `src/modules/auth/session-security.ts`: CS-028 solo confía en protocolo/host autenticados.
+- `src/app/api/session/login/route.ts`: solo reenvía IP de proxy autenticado.
+- `tests/unified-login-route.test.ts`: IPv4, IPv6, cadena, formato inválido, cabecera artificial y cookies Secure.
+- `deploy/Caddyfile` y `deploy/README.md`: frontera Caddy → BFF reproducible.
+- `.env.example`, `package.json` y `package-lock.json`: variable de secreto y correcciones dirigidas.
 
-## Cambio en LoginAttemptGuard
+## Evidencia local ejecutada
 
-Un login exitoso elimina solamente el estado de la cuenta autenticada. El contador por IP permanece activo hasta que vence la ventana o el cooldown configurado. No se cambiaron umbrales, ventana, cooldown ni capacidad.
+- PostgreSQL `postgres:16-alpine`, image ID `sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb`, proyecto aislado `cs001002qa`, puerto 15432.
+- Mailpit `axllent/mailpit:v1.27`, image ID `sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68`, puertos 13025/20025.
+- Caddy `caddy:2.10-alpine`, digest `sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d`.
+- Suite Maven completa: **128/128 PASS**; 0 fallos, 0 errores, 0 omitidas.
+- `ForwardedLoginRateLimitIntegrationTest`: **1/1 PASS** con Tomcat real.
+- `LoginAttemptGuardTest`: **4/4 PASS**.
+- BFF autenticación/roles/proxy/CS-028: **11/11 PASS**.
+- Otros scripts frontend: **30/30 PASS**.
+- ESLint: PASS, 0 errores y 1 advertencia preexistente en `tests/browser-delivery-journey.mjs`.
+- Typecheck aislado: PASS. Una ejecución paralela con `next build` falló por carrera sobre `.next`; la repetición secuencial pasó.
+- Build Next.js: PASS.
+- `npm ci`: PASS con advertencias de motor porque Node 22.20.0 es inferior al mínimo 22.22.2 de dependencias de test.
+- `caddy validate`: PASS para `deploy/Caddyfile`; advertencias no bloqueantes de formato/header_up.
+- Backup/restore: `pg_dump -Fc`, restauración en `cs001002_restore`, Flyway v16 y 24 tablas verificadas: PASS.
 
-## Tratamiento de IP real
+## npm audit
 
-Spring Boot usa `server.forward-headers-strategy: native`. Tomcat interpreta `X-Forwarded-For` mediante su soporte nativo y solo acepta forwarded headers cuando el salto inmediato pertenece a sus proxies internos confiables. Sin proxy, `getRemoteAddr()` conserva la dirección de la conexión directa.
+Antes: 7 altas. Después: 5 altas, 0 críticas. Se eliminaron los hallazgos de `sharp` y `source-map-js`.
 
-## BFF / proxy
+Persisten `braces <=3.0.3` y su cadena (`micromatch`, `fast-glob`, `@next/eslint-plugin-next`, `eslint-config-next`). Al 2026-10-19, `npm view braces version` devuelve 3.0.3: no existe versión corregida publicada. La recomendación automática de npm es bajar `eslint-config-next` de 16.x a 14.2.35, cambio mayor incompatible con Next 16; no se aplicó.
 
-El BFF de login toma exclusivamente la primera dirección de la cadena `X-Forwarded-For`, valida que sea IPv4 o IPv6 y la envía a Spring. Una cabecera malformada se omite. La topología autorizada es cliente → Caddy → Next/BFF → Spring; Caddy y el BFF deben permanecer como únicos puntos públicos, y Spring debe permanecer detrás de ellos.
+## Rate limit horizontal
 
-No se reenvían cookies, CSRF ni tokens mediante esta cabecera. El Bearer continúa confinado al BFF.
+`LoginAttemptGuard` conserva estado en memoria de una JVM. Un despliegue de varias réplicas no ofrece un límite global sin almacenamiento compartido. Decisión requerida antes de producción: implementar contador atómico compartido (por ejemplo Redis administrado), aplicar rate limit global en el perímetro o mantener una sola réplica documentada. Esta rama no introduce Redis ni una migración sin arquitectura/operación aprobadas.
 
-## Límites y ventanas preservados
+## Pruebas pendientes de infraestructura
 
-- Cuenta: 5 fallos.
-- IP: 20 fallos.
-- Ventana: 60 segundos.
-- Cooldown: 60 segundos.
-- Capacidad: 10,000 entradas.
+- Tráfico real del staging administrado cliente → Caddy → Next/BFF → Spring.
+- Verificación externa de que solo Caddy tiene listener/ruta pública y que BFF/Spring no son alcanzables desde Internet.
+- Configuración real de secretos, CIDR del BFF, certificados y firewall.
+- Regresión manual en navegador de login, registro, verificación, recuperación, reservas, módulos administrativos, búsqueda, cobros y pagos simulados.
+- Backup/restauración del staging y rollback del artefacto desplegado.
+- Revisión de una eventual V17: este clon solo contiene migraciones hasta V16, por lo que no se puede validar aquí su ausencia de down migration.
 
-## Pruebas ejecutadas
-
-- `LoginAttemptGuardTest`: 4/4 PASS.
-- Autenticación dirigida con PostgreSQL aislado: 19/19 PASS.
-- Tomcat real y forwarded headers: 1/1 PASS.
-- Suite completa Maven: 128/128 PASS.
-- BFF de autenticación: 8/8 PASS.
-- Resto de pruebas frontend disponibles: 30/30 PASS.
-- ESLint: PASS, con una advertencia preexistente fuera del alcance.
-- TypeScript: PASS.
-- Build de producción Next.js: PASS.
-
-## Resultados
-
-- El contador por cuenta se limpia después de un login válido.
-- El contador por IP no se limpia después de un login válido.
-- Cambiar de correo no evade el límite por IP.
-- Dos IP distintas conservan estados independientes.
-- Cuenta e IP se desbloquean al vencer ventana/cooldown.
-- PACIENTE, ADMIN, RECEPCION y MEDICO conservan sus flujos de autenticación.
-- El BFF no expone el Bearer al navegador.
-
-## Prueba detrás de proxy
-
-`ForwardedLoginRateLimitIntegrationTest` inicia Tomcat en un puerto aleatorio y envía solicitudes HTTP reales desde loopback, que representa el proxy interno confiable. Verifica solicitud directa sin proxy, dos IP reenviadas independientes, bloqueo por IP y que un login correcto intercalado no reinicia ese contador. Las pruebas del BFF verifican además el reenvío de la primera IP válida y el rechazo de valores malformados.
-
-## Roles existentes
-
-Los flujos unificados y separados de paciente y personal siguen disponibles. La suite cubrió los roles PACIENTE, ADMIN, RECEPCION y MEDICO sin cambiar contratos ni autorizaciones.
-
-## Posibles conflictos con CS-028
-
-CS-028 también necesita forwarded headers para interpretar `X-Forwarded-Proto` y emitir cookies `Secure`. Esta corrección configura también el nombre de `protocol-header` en Tomcat, pero no habilita HTTPS, HSTS, certificados ni cambios de cookies. La futura corrección CS-028 debe conservar la estrategia nativa y la frontera de proxies confiables.
-
-## Riesgos
-
-- Next/BFF no debe exponerse directamente a Internet: confía en la cadena saneada que recibe del proxy frontal autorizado.
-- Spring no debe publicarse directamente: la configuración presupone BFF en loopback o red privada confiable.
-- El estado del limitador sigue siendo local a cada instancia; un despliegue horizontal requeriría almacenamiento compartido para un límite global.
+Ningún punto de esta sección se marca PASS.
 
 ## Rollback
 
-Revertir los commits de esta rama con `git revert <sha-del-commit>` en frontend y backend. No usar `reset --hard`. El rollback restaura el comportamiento anterior sin reescribir historial.
+La base no debe retrocederse con una down migration destructiva. Conservar el backup verificado, desplegar el artefacto anterior y crear commits `git revert` de los commits de esta rama. Si existe una V17 en staging, restaurar sobre una instancia/base nueva desde backup validado y cambiar tráfico solo después de smoke tests; no modificar manualmente `flyway_schema_history`.
 
-## Secretos
+## Dictamen
 
-No se registraron ni versionaron secretos, tokens, cookies, CSRF, archivos `.env`, datos clínicos ni credenciales reales. Las pruebas utilizaron exclusivamente credenciales sintéticas y una PostgreSQL aislada.
+**NO APTO PARA PRODUCCIÓN** hasta completar la validación del staging, la regresión manual y una decisión explícita para rate limit horizontal y los cinco hallazgos npm restantes. La publicación de la rama autoriza únicamente revisión QA/DevOps.

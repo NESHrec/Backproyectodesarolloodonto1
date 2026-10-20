@@ -38,6 +38,9 @@ spring:
       mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
 
 server:
+  # Seguro por defecto en despliegue de un solo host. En contenedores use una
+  # IP de red privada y no publique este puerto.
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
   # Tomcat solo acepta X-Forwarded-* desde proxies internos (loopback/redes
   # privadas por defecto). El API permanece enlazado detrás del BFF.
@@ -46,6 +49,8 @@ server:
     remoteip:
       remote-ip-header: x-forwarded-for
       protocol-header: x-forwarded-proto
+      # Debe limitarse a la IP/CIDR real del BFF en QA y producción.
+      internal-proxies: ${TRUSTED_PROXY_CIDR:127\.0\.0\.1|::1}
 
 clinica:
   media:
