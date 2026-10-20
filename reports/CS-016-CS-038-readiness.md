@@ -74,7 +74,7 @@ En la candidata frontend `4d9266c34351f64f80ae9b197aa6ee3a89f38e31`, `npm ci` in
 
 Después de actualizar esas dependencias: 76/76 pruebas frontend ejecutables excluyendo las dos pruebas BFF con sesión ausente; lint PASS con una advertencia preexistente en `tests/browser-delivery-journey.mjs:80`; typecheck PASS; build PASS. La suite completa, incluidas las dos pruebas bloqueadas, reporta 76 PASS / 2 FAIL por ausencia de las cookies de sesión requeridas. `git diff --check` PASS.
 
-### Estado Git de esta continuación
+### Estado Git antes de los commits de publicación
 
 Frontend permanece en `integration/cs016-cs038-readiness`, HEAD `4d9266c34351f64f80ae9b197aa6ee3a89f38e31`; solo `package-lock.json` está modificado, sin staging. Backend permanece en `integration/cs016-cs038-readiness`, HEAD `7b225e412ef54b7431406f6b0827b123946b10d2`; este addendum es el único cambio local de esta continuación, sin staging. No hubo commit, push, merge, despliegue, uso de producción ni exposición de secretos.
 
@@ -90,6 +90,14 @@ Frontend permanece en `integration/cs016-cs038-readiness`, HEAD `4d9266c34351f64
 
 No se ejecutaron: BFF autenticado de agenda; validación de staging; Caddy → Next/BFF → Spring; Mailpit/correo QA; pagos simulados; backup restaurable, restauración ni rollback operativo. Tampoco se ejecutaron flujos de registro, verificación/recuperación de correo o pagos contra proveedor alguno. Requieren la evidencia y autorizaciones de QA, Release/DevOps y DBA detalladas arriba.
 
-La Scrum Master autorizó publicar estas candidatas únicamente para revisión de QA/DevOps. Esa autorización no implica aceptación del riesgo `braces`, aprobación de rollback, ni autorización de producción. Estado de publicación en este informe: validaciones previas completadas; commits/push pendientes de esta corrida.
+La Scrum Master autorizó publicar estas candidatas únicamente para revisión de QA/DevOps. Esa autorización no implica aceptación del riesgo `braces`, aprobación de rollback, ni autorización de producción.
 
-**Dictamen: NO APTO PARA PRODUCCIÓN.** Tras el push autorizado, el estado de entrega será `PUBLICADO PARA REVISIÓN QA/DEVOPS — NO APTO PARA PRODUCCIÓN`. Los gates externos y el hallazgo `braces` permanecen abiertos. No hacer merge a main/desarrollo/security/integration ni desplegar producción.
+### Publicación para revisión QA/DevOps
+
+- Backend: rama `integration/cs016-cs038-readiness`; commit de informe previo a la verificación post-push `375eda25ae7a39ebd82bfdca9a9db6a845835056`; rama publicada en origin con ese SHA al momento de la verificación.
+- Frontend: rama `integration/cs016-cs038-readiness`; commit `fafb5a6c1e089e910c7c9dcc1fcc1fbd5a3a3d29`; rama publicada en origin con SHA idéntico.
+- Archivos del cambio publicado: backend `reports/CS-016-CS-038-readiness.md`; frontend `package-lock.json`.
+- Los hashes exactos de los dos commits de publicación se encuentran en el historial de esas ramas. Este addendum final registra el resultado post-push; su commit actualiza únicamente este informe.
+- No se publicaron cambios a `main`, `desarrollo` ni `security/integration`; no hubo merge ni despliegue.
+
+Los gates externos y el hallazgo `braces` permanecen abiertos. **Estado: `PUBLICADO PARA REVISIÓN QA/DEVOPS — NO APTO PARA PRODUCCIÓN`.** No hacer merge a main/desarrollo/security/integration ni desplegar producción hasta que se aporten y aprueben las evidencias pendientes.
