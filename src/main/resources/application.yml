@@ -11,6 +11,13 @@ spring:
     username: ${DB_USER:clinica_app}
     password: ${DB_PASSWORD:change-me}
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+
   servlet:
     multipart:
       max-file-size: 10MB
@@ -57,6 +64,7 @@ clinica:
       window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:900}
       max-entries: ${AUTH_RATE_LIMIT_MAX_ENTRIES:10000}
     login-rate-limit:
+      backend: ${AUTH_LOGIN_RATE_LIMIT_BACKEND:local}
       max-failures: 5
       max-failures-per-address: 20
       window-seconds: 60
