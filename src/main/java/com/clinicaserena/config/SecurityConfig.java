@@ -82,6 +82,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/verify-email", "/api/v1/auth/resend-verification", "/api/v1/auth/password-recovery",
                                 "/api/v1/auth/password-reset").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/staff/auth/login").permitAll()
+                        // Actuator is reachable only through the private management port.
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").hasRole("PACIENTE")
                         .requestMatchers("/api/v1/pacientes/**", "/api/v1/citas/**").hasRole("PACIENTE")
                         .requestMatchers("/api/v1/staff/auth/me", "/api/v1/staff/auth/logout")
