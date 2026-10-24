@@ -31,8 +31,6 @@ jobs:
       TEST_DB_NAME: clinica_test
       TEST_DB_USER: clinica_test
       TEST_DB_PASSWORD: clinica-test-only
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,7 +43,7 @@ jobs:
       - name: Run backend tests
         run: ./mvnw -B verify
       - name: Start restricted SSH tunnel to SonarQube
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ github.event_name == 'push' }}
         env:
           SONAR_SSH_PRIVATE_KEY: ${{ secrets.SONAR_SSH_PRIVATE_KEY }}
           SONAR_SSH_KNOWN_HOSTS: ${{ secrets.SONAR_SSH_KNOWN_HOSTS }}
@@ -65,8 +63,11 @@ jobs:
           curl --fail --silent --show-error --retry 5 --retry-delay 2 \
             http://127.0.0.1:19001/api/system/status >/dev/null
       - name: SonarQube analysis and Quality Gate
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ github.event_name == 'push' }}
         uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >-
             -Dsonar.projectKey=clinica-serena-backend
