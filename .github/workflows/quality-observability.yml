@@ -1,0 +1,78 @@
+name: Quality and observability
+
+on:
+  pull_request:
+  push:
+    branches: [desarrollo, main, feature/observability-staging]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: clinica_test
+          POSTGRES_USER: clinica_test
+          POSTGRES_PASSWORD: clinica-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clinica_test -d clinica_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: clinica_test
+      TEST_DB_USER: clinica_test
+      TEST_DB_PASSWORD: clinica-test-only
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run backend tests
+        run: ./mvnw -B verify
+      - name: Start restricted SSH tunnel to SonarQube
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          SONAR_SSH_PRIVATE_KEY: ${{ secrets.SONAR_SSH_PRIVATE_KEY }}
+          SONAR_SSH_KNOWN_HOSTS: ${{ secrets.SONAR_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SONAR_SSH_PRIVATE_KEY" > "$HOME/.ssh/sonar-ci"
+          printf '%s\n' "$SONAR_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/sonar-ci" "$HOME/.ssh/known_hosts"
+          ssh -fN -i "$HOME/.ssh/sonar-ci" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 \
+            -L 127.0.0.1:19001:127.0.0.1:9001 \
+            sonar-ci@207.244.224.129
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 \
+            http://127.0.0.1:19001/api/system/status >/dev/null
+      - name: SonarQube analysis and Quality Gate
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: SonarSource/sonarqube-scan-action@v6
+        with:
+          args: >-
+            -Dsonar.projectKey=clinica-serena-backend
+            -Dsonar.sources=src/main/java
+            -Dsonar.tests=src/test/java
+            -Dsonar.java.binaries=target/classes
+            -Dsonar.java.test.binaries=target/test-classes
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
