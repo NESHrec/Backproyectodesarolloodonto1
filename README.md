@@ -2,6 +2,8 @@
 
 API backend para el gestor de expedientes y citas de Clínica Serena. El servicio usa Java 21, Spring Boot, PostgreSQL y migraciones Flyway.
 
+La integración de Firebase Cloud Messaging, su activación gradual y el manejo seguro de credenciales se documentan en [`docs/firebase-push-setup.md`](docs/firebase-push-setup.md).
+
 ## Estado funcional
 
 Están implementados y son públicos:

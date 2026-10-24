@@ -5,7 +5,7 @@ import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
- * Impide arrancar con una configuración de push peligrosa: el envío simulado fuera de dev o test, o la
+ * Impide arrancar con una configuración push peligrosa: el envío simulado fuera de dev o test, o la
  * tarea encendida sin proveedor. Falla al iniciar, con un mensaje claro, en lugar de quedar a medias.
  */
 @Component

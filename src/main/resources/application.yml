@@ -45,9 +45,8 @@ clinica:
   media:
     practitioner-photo-root: ${PRACTITIONER_PHOTO_STORAGE_ROOT:${user.home}/.clinica-serena/practitioner-photos}
     practitioner-photo-max-bytes: ${PRACTITIONER_PHOTO_MAX_BYTES:2097152}
-  # Recordatorios push (Fase D1). Apagados por defecto en todos los perfiles. NONE: sin envío y el
-  # registro de dispositivos responde 409 PUSH_NOT_ENABLED. SIMULATED solo se permite con dev o test.
-  # Las credenciales de un proveedor real (Firebase) irán en variables de entorno, nunca en Git.
+  # Recordatorios push (Fase D). Apagados por defecto. NONE: sin envío; SIMULATED solo dev/test;
+  # FIREBASE usa ADC y GOOGLE_APPLICATION_CREDENTIALS. Nunca guardar claves en Git.
   push:
     provider: ${CLINICA_PUSH_PROVIDER:NONE}
     reminders:
