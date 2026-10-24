@@ -3,7 +3,7 @@ name: Quality and observability
 on:
   pull_request:
   push:
-    branches: [desarrollo, main, feature/observability-staging]
+    branches: [desarrollo, main, feature/observability-staging, feature/observability-safe]
 
 permissions:
   contents: read
