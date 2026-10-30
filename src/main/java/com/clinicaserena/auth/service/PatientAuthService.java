@@ -1,5 +1,7 @@
 package com.clinicaserena.auth.service;
 
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.push.repository.PushDeviceRepository;
 import com.clinicaserena.auth.dto.LoginRequest;
 import com.clinicaserena.auth.dto.LoginResponse;
 import com.clinicaserena.auth.dto.PatientIdentityResponse;
@@ -39,14 +41,20 @@ public class PatientAuthService {
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptGuard loginAttemptGuard;
     private final long sessionTtlSeconds;
+    private final PushDeviceRepository pushDevices;
+    private final BitacoraService audit;
 
     public PatientAuthService(
             CuentaPacienteRepository cuentaRepository,
             SesionPacienteRepository sesionRepository,
             PasswordEncoder passwordEncoder,
             LoginAttemptGuard loginAttemptGuard,
-            @Value("${clinica.auth.session-ttl-seconds:1800}") long sessionTtlSeconds
+            @Value("${clinica.auth.session-ttl-seconds:1800}") long sessionTtlSeconds,
+            PushDeviceRepository pushDevices,
+            BitacoraService audit
     ) {
+        this.pushDevices = pushDevices;
+        this.audit = audit;
         this.cuentaRepository = cuentaRepository;
         this.sesionRepository = sesionRepository;
         this.passwordEncoder = passwordEncoder;
@@ -101,6 +109,12 @@ public class PatientAuthService {
                 session.revocar(OffsetDateTime.now(ZoneOffset.UTC));
             }
         });
+        // Los dispositivos push que registró esta sesión dejan de recibir recordatorios al cerrarla.
+        // Cada retiro se audita en la misma transacción, con el id interno (nunca el token ni su hash).
+        OffsetDateTime removedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        for (String deviceId : pushDevices.deleteBySessionTokenHash(principal.tokenHash())) {
+            audit.recordPatient(principal, "PUSH_DEVICE_REMOVED", "DISPOSITIVO_PUSH", deviceId, removedAt);
+        }
     }
 
     private ApiException invalidCredentials() {

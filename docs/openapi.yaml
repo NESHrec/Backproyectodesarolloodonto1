@@ -1545,6 +1545,96 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
 
+  /pacientes/me/dispositivos-push:
+    put:
+      tags: [Portal del paciente]
+      summary: Registra el token de notificaciones del dispositivo del paciente
+      description: |
+        Requiere rol `PACIENTE`. La cuenta procede exclusivamente del Bearer; el cuerpo
+        no acepta identificadores. Es idempotente: si el token ya existe (mismo
+        teléfono), se reasigna a la cuenta y la sesión actuales. El token nunca se
+        devuelve, no se registra en logs ni en la bitácora (se audita
+        `PUSH_DEVICE_REGISTERED` con el id interno del dispositivo).
+
+        Recordatorios: un único aviso por cita, entre 24 y 22 horas antes, solo con
+        fecha y hora en `America/Guatemala` («hoy» o «mañana» según la fecha local),
+        sin médico, especialidad, notas ni otro dato clínico. Citas canceladas,
+        completadas o pasadas no se recuerdan.
+
+        Con el envío apagado (`clinica.push.provider=NONE`, por defecto) responde 409
+        `PUSH_NOT_ENABLED` y no guarda nada. El proveedor `SIMULATED` solo existe con los
+        perfiles `dev` o `test`, solo acepta tokens `SIMULADO-…` y nunca entrega
+        notificaciones reales.
+
+        Cerrar la sesión que registró el dispositivo lo retira; restablecer la
+        contraseña retira todos los de la cuenta. El vencimiento de la sesión no lo
+        retira.
+      security:
+        - bearerAuth: []
+      operationId: registerMyPushDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterPushDeviceRequest"
+      responses:
+        "204":
+          description: Dispositivo registrado o actualizado.
+          headers:
+            Cache-Control:
+              description: La respuesta no se almacena en caché.
+              schema: { type: string, example: no-store }
+        "400":
+          description: |
+            `VALIDATION_ERROR` (largo o caracteres del token; los mensajes nunca repiten
+            el valor), `INVALID_REQUEST` (plataforma desconocida o campos extra) o
+            `PUSH_TOKEN_NOT_SIMULATED` (modo simulado con un token que no empieza con
+            `SIMULADO-`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: La identidad autenticada no tiene rol PACIENTE.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: "`PUSH_NOT_ENABLED`: el envío de notificaciones no está habilitado; no se guardó nada."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /pacientes/me/dispositivos-push/retiro:
+    post:
+      tags: [Portal del paciente]
+      summary: Retira el token de notificaciones de un dispositivo propio
+      description: |
+        Requiere rol `PACIENTE`. Se usa `POST` con cuerpo para que el token nunca viaje
+        en la URL. Es idempotente y solo retira el token si pertenece a la cuenta
+        autenticada; si no existe o es de otra cuenta responde igual 204, sin
+        revelarlo. Un retiro efectivo se audita como `PUSH_DEVICE_REMOVED`.
+      security:
+        - bearerAuth: []
+      operationId: removeMyPushDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemovePushDeviceRequest"
+      responses:
+        "204":
+          description: El token ya no está asociado a la cuenta.
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: La identidad autenticada no tiene rol PACIENTE.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
   /pacientes/me/recetas:
     get:
       tags: [Portal del paciente]
@@ -2430,6 +2520,32 @@ components:
           minLength: 2
           maxLength: 160
           description: Único campo editable en Tanda 1.
+
+    RegisterPushDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [token, platform]
+      properties:
+        token:
+          type: string
+          minLength: 20
+          maxLength: 4096
+          pattern: "^[A-Za-z0-9:_\\-]+$"
+          description: Token del proveedor de notificaciones. Nunca se devuelve ni se registra en logs.
+        platform:
+          type: string
+          enum: [ANDROID]
+
+    RemovePushDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 20
+          maxLength: 4096
+          pattern: "^[A-Za-z0-9:_\\-]+$"
 
     ApiError:
       type: object

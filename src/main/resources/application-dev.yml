@@ -6,3 +6,11 @@ springdoc:
     path: /swagger-ui.html
     url: /openapi.yaml
     disable-swagger-default-url: true
+
+# Desarrollo: envío SIMULADO (no entrega nada, solo acepta tokens SIMULADO-…), pero la tarea queda
+# APAGADA para que no corra al levantar dev; se enciende con CLINICA_PUSH_REMINDERS_ENABLED=true.
+clinica:
+  push:
+    provider: ${CLINICA_PUSH_PROVIDER:SIMULATED}
+    reminders:
+      enabled: ${CLINICA_PUSH_REMINDERS_ENABLED:false}
