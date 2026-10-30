@@ -3,7 +3,7 @@ name: Backend release candidate CI
 on:
   pull_request:
   push:
-    branches: [desarrollo, codex/production-candidate-20261029]
+    branches: [dev, desarrollo]
   workflow_dispatch:
 
 permissions:
@@ -74,7 +74,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >-
-            -Dsonar.projectKey=clinica-serena-backend
+            -Dsonar.projectKey=${{ github.ref == 'refs/heads/dev' && 'clinica-serena-backend-dev' || 'clinica-serena-backend' }}
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
@@ -85,8 +85,12 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
+          project_key='clinica-serena-backend'
+          if [[ "$GITHUB_REF" == 'refs/heads/dev' ]]; then
+            project_key='clinica-serena-backend-dev'
+          fi
           curl --fail --silent --show-error --user "$SONAR_TOKEN:" \
-            "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=clinica-serena-backend" \
+            "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$project_key" \
             | jq '{status:.projectStatus.status, conditions:[.projectStatus.conditions[] | {metricKey,status,errorThreshold,actualValue}]}'
 
   deploy-production:

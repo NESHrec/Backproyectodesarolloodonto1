@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class HealthController {
 
+    private static final String SERVICE_NAME = "clinica-serena-api";
+
     @GetMapping("/health")
     public HealthResponse health() {
-        return new HealthResponse("UP", "clinica-serena-api");
+        return new HealthResponse("UP", SERVICE_NAME);
     }
 }
