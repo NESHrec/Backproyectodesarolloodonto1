@@ -3,7 +3,7 @@ name: Backend release candidate CI
 on:
   pull_request:
   push:
-    branches: [codex/production-candidate-20261029]
+    branches: [desarrollo, codex/production-candidate-20261029]
   workflow_dispatch:
 
 permissions:
