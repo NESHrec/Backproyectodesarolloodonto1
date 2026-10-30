@@ -16,4 +16,14 @@ public interface EspecialidadRepository extends JpaRepository<Especialidad, Stri
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from Especialidad e where e.id = :id")
     java.util.Optional<Especialidad> findByIdForUpdate(@Param("id") String id);
+
+    /** Hard-delete is safe only when no practitioner or appointment references the specialty. */
+    @Query(value = """
+            select case
+                when exists (select 1 from medicos where especialidad_id = :id) then 'PRACTITIONERS'
+                when exists (select 1 from citas where especialidad_id = :id) then 'APPOINTMENTS'
+                else null
+            end
+            """, nativeQuery = true)
+    String findDeletionBlocker(@Param("id") String id);
 }

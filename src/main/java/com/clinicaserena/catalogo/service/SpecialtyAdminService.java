@@ -71,6 +71,19 @@ public class SpecialtyAdminService {
         }
     }
 
+    @Transactional
+    public void delete(StaffPrincipal principal, String id) {
+        Especialidad specialty = repository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SPECIALTY_NOT_FOUND", "La especialidad no existe"));
+        if (repository.findDeletionBlocker(id) != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "SPECIALTY_HAS_REFERENCES",
+                    "No se puede eliminar: la especialidad conserva profesionales o citas asociadas");
+        }
+        repository.delete(specialty);
+        repository.flush();
+        audit.record(principal, "SPECIALTY_DELETED", "ESPECIALIDAD", id, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
     private void ensureUnique(String normalizedName, String excludedId) {
         boolean duplicate = repository.findAll().stream()
                 .filter(item -> excludedId == null || !item.getId().equals(excludedId))

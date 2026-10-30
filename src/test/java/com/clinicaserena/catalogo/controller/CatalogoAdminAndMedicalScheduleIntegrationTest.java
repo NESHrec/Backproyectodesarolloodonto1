@@ -136,6 +136,25 @@ class CatalogoAdminAndMedicalScheduleIntegrationTest {
     }
 
     @Test
+    void eliminaEspecialidadSinReferenciasYRechazaEspecialidadAsociada() throws Exception {
+        String token = login("t2.admin@example.test");
+        String created = mockMvc.perform(post("/api/v1/staff/especialidades")
+                        .header("Authorization", "Bearer " + token).contentType("application/json")
+                        .content("{\"name\":\"Especialidad eliminable\",\"description\":\"Fixture sin referencias\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String deletableId = objectMapper.readTree(created).get("id").asText();
+        mockMvc.perform(delete("/api/v1/staff/especialidades/{id}", deletableId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM especialidades WHERE id=?", Integer.class, deletableId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_id=? AND accion=? AND entidad_id=?", Integer.class,
+                ADMIN, "SPECIALTY_DELETED", deletableId)).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/v1/staff/especialidades/{id}", SPECIALTY).header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SPECIALTY_HAS_REFERENCES"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM especialidades WHERE id=?", Integer.class, SPECIALTY)).isOne();
+    }
+
+    @Test
     void soloAdminAdministraEspecialidadesYLaCuentaPacienteNoObtienePermiso() throws Exception {
         String adminToken = login("t2.admin@example.test");
         String receptionToken = login("t2.reception@example.test");

@@ -100,6 +100,23 @@ public class PractitionerAdminService {
         return mapper.toDto(practitioner);
     }
 
+    @Transactional
+    public void delete(StaffPrincipal principal, String id) {
+        Medico practitioner = locked(id);
+        if (practitioner.isActivo()) {
+            throw new ApiException(HttpStatus.CONFLICT, "PRACTITIONER_MUST_BE_INACTIVE", "Desactiva primero el profesional antes de eliminarlo");
+        }
+        String blocker = practitioners.findDeletionBlocker(id);
+        if (blocker != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "PRACTITIONER_HAS_HISTORY", "No se puede eliminar: el profesional conserva registros o relaciones históricas");
+        }
+        String previous = practitioner.getFotoClave();
+        practitioners.delete(practitioner);
+        practitioners.flush();
+        record(principal, "PRACTITIONER_DELETED", id);
+        deleteAfterCommit(previous);
+    }
+
     private void deleteAfterCommit(String key) {
         if (key == null) return;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
