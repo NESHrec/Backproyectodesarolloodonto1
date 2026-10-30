@@ -88,6 +88,10 @@ class UnifiedAuthControllerIntegrationTest {
         assertUnifiedLogin(ADMIN_EMAIL, "PERSONAL", "ADMIN", "admin");
         assertUnifiedLogin(RECEPTION_EMAIL, "PERSONAL", "RECEPCION", "reception");
         assertUnifiedLogin(DOCTOR_EMAIL, "PERSONAL", "MEDICO", "doctor");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_id=? "
+                + "AND accion='PATIENT_LOGIN_SUCCEEDED' AND actor_rol='PACIENTE'", Integer.class, PATIENT_ACCOUNT_ID)).isGreaterThan(0);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_id=? "
+                + "AND accion='STAFF_LOGIN_SUCCEEDED' AND actor_rol='ADMIN'", Integer.class, ADMIN_ID)).isGreaterThan(0);
     }
 
     @Test
@@ -101,6 +105,8 @@ class UnifiedAuthControllerIntegrationTest {
 
         assertThat(sessionCount("sesiones_paciente")).isEqualTo(patientSessions);
         assertThat(sessionCount("sesiones_personal")).isEqualTo(staffSessions);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='AUTH_LOGIN_FAILED' "
+                + "AND actor_tipo='SISTEMA' AND client_ip IS NOT NULL", Integer.class)).isGreaterThan(0);
     }
 
     @Test

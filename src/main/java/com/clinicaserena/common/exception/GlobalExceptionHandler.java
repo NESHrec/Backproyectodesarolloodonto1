@@ -11,6 +11,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.auditoria.service.SecurityEventAuditLimiter;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 
@@ -20,6 +26,15 @@ import java.util.List;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private final BitacoraService audit;
+    private final SecurityEventAuditLimiter auditLimiter;
+
+    public GlobalExceptionHandler(ObjectProvider<BitacoraService> auditProvider,
+                                  ObjectProvider<SecurityEventAuditLimiter> auditLimiterProvider) {
+        this.audit = auditProvider.getIfAvailable();
+        this.auditLimiter = auditLimiterProvider.getIfAvailable();
+    }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
@@ -37,7 +52,14 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<ApiError> handleApiException(ApiException ex) {
+    public ResponseEntity<ApiError> handleApiException(ApiException ex, HttpServletRequest request) {
+        if (ex.getStatus() == HttpStatus.UNAUTHORIZED && !isStaffLogin(request)) {
+            recordAuditSafely("HTTP_401", request);
+        } else if (ex.getStatus() == HttpStatus.FORBIDDEN) {
+            recordAuditSafely("HTTP_403", request);
+        } else if (ex.getStatus().is5xxServerError()) {
+            recordAuditSafely("HTTP_500", request);
+        }
         ApiError body = ApiError.of(ex.getStatus().value(), ex.getCode(), ex.getMessage());
         return ResponseEntity.status(ex.getStatus()).body(body);
     }
@@ -83,13 +105,31 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
+    public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
+        recordAuditSafely("HTTP_500", request);
         ApiError body = ApiError.of(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 "INTERNAL_ERROR",
                 "Ocurrió un error inesperado"
         );
         return ResponseEntity.internalServerError().body(body);
+    }
+
+    private boolean isStaffLogin(HttpServletRequest request) {
+        return "POST".equals(request.getMethod()) && switch (request.getRequestURI()) {
+            case "/api/v1/staff/auth/login", "/api/v1/auth/login", "/api/v1/auth/login-unified" -> true;
+            default -> false;
+        };
+    }
+
+    private void recordAuditSafely(String action, HttpServletRequest request) {
+        if (audit == null || auditLimiter == null || !auditLimiter.shouldPersist(action, request)) return;
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        try {
+            audit.recordSecurityEvent(authentication, action, request);
+        } catch (RuntimeException ignored) {
+            // Preserve the original API response if the audit store is unavailable.
+        }
     }
 
     private ApiError.FieldErrorItem toFieldErrorItem(FieldError fieldError) {

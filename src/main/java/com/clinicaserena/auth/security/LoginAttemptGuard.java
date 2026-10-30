@@ -1,7 +1,10 @@
 package com.clinicaserena.auth.security;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +23,14 @@ import java.util.Map;
 @Service
 public class LoginAttemptGuard {
 
+    private static final String KEY_PREFIX = "clinica:auth:login-limit:";
+    private static final DefaultRedisScript<Long> RECORD_FAILURE_SCRIPT = new DefaultRedisScript<>(
+            "local count = redis.call('INCR', KEYS[1]) "
+                    + "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end "
+                    + "if count >= tonumber(ARGV[2]) then redis.call('SET', KEYS[2], '1', 'EX', ARGV[3]) end "
+                    + "return count",
+            Long.class);
+
     private final Map<String, AttemptState> accountAttempts = new HashMap<>();
     private final Map<String, AttemptState> addressAttempts = new HashMap<>();
     private final int maxFailuresPerAccount;
@@ -28,6 +39,8 @@ public class LoginAttemptGuard {
     private final Duration cooldown;
     private final int maxEntries;
     private final Clock clock;
+    private final StringRedisTemplate redis;
+    private final boolean redisEnabled;
 
     @Autowired
     public LoginAttemptGuard(
@@ -35,9 +48,12 @@ public class LoginAttemptGuard {
             @Value("${clinica.auth.login-rate-limit.max-failures-per-address:20}") int maxFailuresPerAddress,
             @Value("${clinica.auth.login-rate-limit.window-seconds:60}") long windowSeconds,
             @Value("${clinica.auth.login-rate-limit.cooldown-seconds:60}") long cooldownSeconds,
-            @Value("${clinica.auth.login-rate-limit.max-entries:10000}") int maxEntries
+            @Value("${clinica.auth.login-rate-limit.max-entries:10000}") int maxEntries,
+            ObjectProvider<StringRedisTemplate> redisProvider,
+            @Value("${clinica.auth.login-rate-limit.backend:local}") String backend
     ) {
-        this(maxFailuresPerAccount, maxFailuresPerAddress, windowSeconds, cooldownSeconds, maxEntries, Clock.systemUTC());
+        this(maxFailuresPerAccount, maxFailuresPerAddress, windowSeconds, cooldownSeconds, maxEntries,
+                Clock.systemUTC(), redisProvider.getIfAvailable(), backend);
     }
 
     LoginAttemptGuard(
@@ -47,6 +63,20 @@ public class LoginAttemptGuard {
             long cooldownSeconds,
             int maxEntries,
             Clock clock
+    ) {
+        this(maxFailuresPerAccount, maxFailuresPerAddress, windowSeconds, cooldownSeconds, maxEntries,
+                clock, null, "local");
+    }
+
+    LoginAttemptGuard(
+            int maxFailuresPerAccount,
+            int maxFailuresPerAddress,
+            long windowSeconds,
+            long cooldownSeconds,
+            int maxEntries,
+            Clock clock,
+            StringRedisTemplate redis,
+            String backend
     ) {
         if (maxFailuresPerAccount < 1 || maxFailuresPerAddress < 1
                 || windowSeconds < 1 || cooldownSeconds < 1 || maxEntries < 2) {
@@ -58,9 +88,18 @@ public class LoginAttemptGuard {
         this.cooldown = Duration.ofSeconds(cooldownSeconds);
         this.maxEntries = maxEntries;
         this.clock = clock;
+        this.redisEnabled = "redis".equalsIgnoreCase(backend);
+        if (redisEnabled && redis == null) {
+            throw new IllegalStateException("El rate limit Redis está habilitado pero Redis no está configurado");
+        }
+        this.redis = redis;
     }
 
     public synchronized boolean isAllowed(String accountKey, String remoteAddress) {
+        if (redisEnabled) {
+            return !redis.hasKey(blockKey("account", accountKey))
+                    && !redis.hasKey(blockKey("address", remoteAddress));
+        }
         Instant now = clock.instant();
         purgeExpiredEntries(now);
         return isAllowed(accountAttempts.get(accountKey), now)
@@ -68,6 +107,11 @@ public class LoginAttemptGuard {
     }
 
     public synchronized void recordFailure(String accountKey, String remoteAddress) {
+        if (redisEnabled) {
+            recordRedisFailure("account", accountKey, maxFailuresPerAccount);
+            recordRedisFailure("address", remoteAddress, maxFailuresPerAddress);
+            return;
+        }
         Instant now = clock.instant();
         purgeExpiredEntries(now);
         recordFailure(accountAttempts, accountKey, maxFailuresPerAccount, now);
@@ -75,6 +119,12 @@ public class LoginAttemptGuard {
     }
 
     public synchronized void recordSuccess(String accountKey, String remoteAddress) {
+        if (redisEnabled) {
+            redis.delete(java.util.List.of(
+                    counterKey("account", accountKey), blockKey("account", accountKey),
+                    counterKey("address", remoteAddress), blockKey("address", remoteAddress)));
+            return;
+        }
         accountAttempts.remove(accountKey);
         addressAttempts.remove(remoteAddress);
     }
@@ -93,6 +143,21 @@ public class LoginAttemptGuard {
         synchronized (this) {
             return accountAttempts.size() + addressAttempts.size();
         }
+    }
+
+    private void recordRedisFailure(String kind, String value, int limit) {
+        String counter = counterKey(kind, value);
+        redis.execute(RECORD_FAILURE_SCRIPT,
+                java.util.List.of(counter, blockKey(kind, value)),
+                Long.toString(window.toSeconds()), Integer.toString(limit), Long.toString(cooldown.toSeconds()));
+    }
+
+    private static String counterKey(String kind, String value) {
+        return KEY_PREFIX + kind + ":" + TokenHasher.sha256(value == null ? "<null>" : value);
+    }
+
+    private static String blockKey(String kind, String value) {
+        return counterKey(kind, value) + ":blocked";
     }
 
     private void recordFailure(

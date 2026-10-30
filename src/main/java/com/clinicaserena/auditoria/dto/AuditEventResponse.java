@@ -10,6 +10,7 @@ public record AuditEventResponse(
         String action,
         String entityType,
         String entityId,
-        OffsetDateTime occurredAt
+        OffsetDateTime occurredAt,
+        String clientIp
 ) {
 }

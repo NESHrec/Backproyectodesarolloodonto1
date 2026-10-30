@@ -90,13 +90,44 @@ class StaffControllerIntegrationTest {
     @Test
     void loginMeLogoutYRevocacionUsanSesionSeparada() throws Exception {
         String token = login("reception.staff@example.test");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_tipo='PERSONAL' "
+                + "AND actor_id=? AND actor_rol='RECEPCION' AND accion='STAFF_LOGIN_SUCCEEDED' "
+                + "AND client_ip IS NOT NULL", Integer.class, RECEPTION_ID)).isOne();
         mockMvc.perform(get("/api/v1/staff/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(header().string(CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.role").value("RECEPCION"));
         mockMvc.perform(post("/api/v1/staff/auth/logout").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent()).andExpect(header().string(CACHE_CONTROL, "no-store"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_id=? "
+                + "AND actor_rol='RECEPCION' AND accion='STAFF_LOGOUT' AND client_ip IS NOT NULL",
+                Integer.class, RECEPTION_ID)).isOne();
         mockMvc.perform(get("/api/v1/staff/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
+        String adminToken = login("admin.staff@example.test");
+        mockMvc.perform(get("/api/v1/staff/audit-events?limit=50").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].clientIp").isString())
+                .andExpect(jsonPath("$.items[0].action").value("STAFF_LOGIN_SUCCEEDED"));
+    }
+
+    @Test
+    void loginFallidoYBloqueoSeAuditanSinGuardarElCorreoIngresado() throws Exception {
+        String unknownEmail = "missing." + UUID.randomUUID() + "@example.test";
+        for (int attempt = 0; attempt < 5; attempt++) {
+            mockMvc.perform(post("/api/v1/staff/auth/login").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"" + unknownEmail + "\",\"password\":\"wrong\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(post("/api/v1/staff/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + unknownEmail + "\",\"password\":\"wrong\"}"))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='STAFF_LOGIN_FAILED' "
+                + "AND actor_tipo='SISTEMA' AND actor_id='anonymous' AND actor_rol='ANONYMOUS' AND client_ip IS NOT NULL",
+                Integer.class)).isEqualTo(5);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='STAFF_LOGIN_BLOCKED' "
+                + "AND actor_tipo='SISTEMA' AND client_ip IS NOT NULL", Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE entidad_id LIKE ?",
+                Integer.class, "%" + unknownEmail + "%")).isZero();
     }
 
     @Test
@@ -112,6 +143,9 @@ class StaffControllerIntegrationTest {
                         .content("{\"email\":\"admin-new@example.test\",\"fullName\":\"Admin no permitido\",\"role\":\"ADMIN\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isForbidden());
         String createdId = jdbc.queryForObject("SELECT id FROM cuentas_personal WHERE email_normalizado = ?", String.class, email);
+        UUID createdUuid = UUID.fromString(createdId);
+        assertThat(createdUuid.version()).isEqualTo(4);
+        assertThat(createdId).isNotEqualTo(RECEPTION_ID);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM bitacora_eventos WHERE actor_id = ? AND actor_rol = 'ADMIN' AND accion = 'STAFF_ACCOUNT_CREATED' AND entidad_tipo = 'CUENTA_PERSONAL' AND entidad_id = ?",
                 Integer.class, ADMIN_ID, createdId)).isEqualTo(1);
@@ -148,6 +182,10 @@ class StaffControllerIntegrationTest {
         mockMvc.perform(get("/api/v1/staff/agenda").with(user("patient").roles("PACIENTE")))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/staff/agenda")).andExpect(status().isUnauthorized());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='HTTP_403' "
+                + "AND actor_rol='MEDICO' AND client_ip IS NOT NULL", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='HTTP_401' "
+                + "AND actor_tipo='SISTEMA' AND client_ip IS NOT NULL", Integer.class)).isOne();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_ARRIVAL_RECORDED'",
                 Integer.class)).isZero();
     }
@@ -167,6 +205,8 @@ class StaffControllerIntegrationTest {
                 Boolean.class, APPOINTMENT_ID)).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='APPOINTMENT_ARRIVAL_RECORDED'",
                 Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE accion='HTTP_500' "
+                + "AND actor_id=? AND actor_rol='RECEPCION' AND client_ip IS NOT NULL", Integer.class, RECEPTION_ID)).isOne();
     }
 
     @Test

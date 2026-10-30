@@ -28,4 +28,20 @@ public interface MedicoRepository extends JpaRepository<Medico, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Medico m where m.id = :id")
     Optional<Medico> findByIdForUpdate(@Param("id") String id);
+
+    /**
+     * Hard-delete is allowed only when the practitioner has no operational,
+     * clinical, account, or linking-history references.
+     */
+    @Query(value = """
+            select case
+                when exists (select 1 from cuentas_personal where medico_id = :id) then 'STAFF_ACCOUNT'
+                when exists (select 1 from citas where medico_id = :id) then 'APPOINTMENTS'
+                when exists (select 1 from atenciones_clinicas where medico_id = :id) then 'CLINICAL_RECORDS'
+                when exists (select 1 from observaciones_odontograma where medico_id = :id) then 'DENTAL_RECORDS'
+                when exists (select 1 from historial_vinculacion_medico where medico_anterior_id = :id or medico_nuevo_id = :id) then 'LINK_HISTORY'
+                else null
+            end
+            """, nativeQuery = true)
+    String findDeletionBlocker(@Param("id") String id);
 }

@@ -12,6 +12,7 @@ import com.clinicaserena.auth.repository.SesionPacienteRepository;
 import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.auth.security.LoginAttemptGuard;
 import com.clinicaserena.auth.security.TokenHasher;
+import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.common.exception.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -39,19 +40,22 @@ public class PatientAuthService {
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptGuard loginAttemptGuard;
     private final long sessionTtlSeconds;
+    private final BitacoraService audit;
 
     public PatientAuthService(
             CuentaPacienteRepository cuentaRepository,
             SesionPacienteRepository sesionRepository,
             PasswordEncoder passwordEncoder,
             LoginAttemptGuard loginAttemptGuard,
-            @Value("${clinica.auth.session-ttl-seconds:1800}") long sessionTtlSeconds
+            @Value("${clinica.auth.session-ttl-seconds:1800}") long sessionTtlSeconds,
+            BitacoraService audit
     ) {
         this.cuentaRepository = cuentaRepository;
         this.sesionRepository = sesionRepository;
         this.passwordEncoder = passwordEncoder;
         this.loginAttemptGuard = loginAttemptGuard;
         this.sessionTtlSeconds = sessionTtlSeconds;
+        this.audit = audit;
     }
 
     @Transactional
@@ -60,6 +64,7 @@ public class PatientAuthService {
         String remoteAddress = normalizeClientAddress(clientAddress);
         String accountKey = email + "|" + remoteAddress;
         if (!loginAttemptGuard.isAllowed(accountKey, remoteAddress)) {
+            audit.recordAnonymousSecurityEvent("AUTH_LOGIN_BLOCKED", remoteAddress);
             throw invalidCredentials();
         }
 
@@ -72,6 +77,7 @@ public class PatientAuthService {
                 && account.getPaciente().getEstado() == EstadoPaciente.ACTIVO;
         if (!passwordMatches || !accountIsActive) {
             loginAttemptGuard.recordFailure(accountKey, remoteAddress);
+            audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
             throw invalidCredentials();
         }
         loginAttemptGuard.recordSuccess(accountKey, remoteAddress);
@@ -86,6 +92,7 @@ public class PatientAuthService {
                 now
         );
         sesionRepository.save(session);
+        audit.recordPatientAuthentication(account.getId(), "PATIENT_LOGIN_SUCCEEDED", remoteAddress);
         return new LoginResponse(rawToken, "Bearer", sessionTtlSeconds);
     }
 
@@ -95,12 +102,13 @@ public class PatientAuthService {
     }
 
     @Transactional
-    public void logout(PatientPrincipal principal) {
+    public void logout(PatientPrincipal principal, String clientAddress) {
         sesionRepository.findByTokenHash(principal.tokenHash()).ifPresent(session -> {
             if (session.getRevocadaEn() == null) {
                 session.revocar(OffsetDateTime.now(ZoneOffset.UTC));
             }
         });
+        audit.recordPatientAuthentication(principal.accountId(), "PATIENT_LOGOUT", clientAddress);
     }
 
     private ApiException invalidCredentials() {

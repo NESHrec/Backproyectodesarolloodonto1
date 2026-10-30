@@ -128,6 +128,35 @@ class PractitionerAdminIntegrationTest {
     }
 
     @Test
+    void eliminaProfesionalInactivoSinReferenciasYRegistraAuditoria() throws Exception {
+        String token = loginAdmin();
+        mvc.perform(delete("/api/v1/staff/medicos/{id}", PRACTITIONER).header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PRACTITIONER_MUST_BE_INACTIVE"));
+
+        mvc.perform(patch("/api/v1/staff/medicos/{id}/estado", PRACTITIONER).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"active\":false}"))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/staff/medicos/{id}", PRACTITIONER).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM medicos WHERE id=?", Integer.class, PRACTITIONER)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bitacora_eventos WHERE actor_personal_id=? AND accion=? AND entidad_id=?", Integer.class, ADMIN, "PRACTITIONER_DELETED", PRACTITIONER)).isEqualTo(1);
+    }
+
+    @Test
+    void eliminaProfesionalInactivoRechazaHistorialConservandoElRegistro() throws Exception {
+        String token = loginAdmin();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).withNano(0);
+        jdbc.update("INSERT INTO historial_vinculacion_medico(id,cuenta_personal_id,medico_anterior_id,medico_nuevo_id,realizado_por,realizado_en) VALUES (?,?,?,?,?,?)",
+                UUID.randomUUID().toString(), DOCTOR, PRACTITIONER, null, ADMIN, now);
+        mvc.perform(patch("/api/v1/staff/medicos/{id}/estado", PRACTITIONER).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"active\":false}"))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/staff/medicos/{id}", PRACTITIONER).header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PRACTITIONER_HAS_HISTORY"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM medicos WHERE id=?", Integer.class, PRACTITIONER)).isEqualTo(1);
+    }
+
+    @Test
     void colegiadoSeNormalizaYRestriccionUnicaResisteSolicitudesConcurrentes() throws Exception {
         String token = loginAdmin();
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);

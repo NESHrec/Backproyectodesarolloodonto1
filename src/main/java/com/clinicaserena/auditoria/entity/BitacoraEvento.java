@@ -42,12 +42,16 @@ public class BitacoraEvento {
     @Column(name = "ocurrido_en", nullable = false, updatable = false)
     private OffsetDateTime ocurridoEn;
 
+    @Column(name = "client_ip", length = 45, updatable = false)
+    private String clientIp;
+
     protected BitacoraEvento() {
     }
 
     public static BitacoraEvento registrar(String id, String actorPersonalId, String actorTipo,
                                            String actorId, String actorRol, String accion,
-                                           String entidadTipo, String entidadId, OffsetDateTime ocurridoEn) {
+                                           String entidadTipo, String entidadId, OffsetDateTime ocurridoEn,
+                                           String clientIp) {
         BitacoraEvento event = new BitacoraEvento();
         event.id = id;
         event.actorPersonalId = actorPersonalId;
@@ -58,6 +62,7 @@ public class BitacoraEvento {
         event.entidadTipo = entidadTipo;
         event.entidadId = entidadId;
         event.ocurridoEn = ocurridoEn;
+        event.clientIp = clientIp;
         return event;
     }
 
@@ -70,4 +75,5 @@ public class BitacoraEvento {
     public String getEntidadTipo() { return entidadTipo; }
     public String getEntidadId() { return entidadId; }
     public OffsetDateTime getOcurridoEn() { return ocurridoEn; }
+    public String getClientIp() { return clientIp; }
 }

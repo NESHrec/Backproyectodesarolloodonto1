@@ -87,8 +87,9 @@ public class PatientAuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(Authentication authentication) {
-        authService.logout((PatientPrincipal) authentication.getPrincipal());
+    public ResponseEntity<Void> logout(Authentication authentication,
+                                       jakarta.servlet.http.HttpServletRequest httpRequest) {
+        authService.logout((PatientPrincipal) authentication.getPrincipal(), httpRequest.getRemoteAddr());
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 }
