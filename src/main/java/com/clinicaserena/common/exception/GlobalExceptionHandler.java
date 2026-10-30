@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.auditoria.service.SecurityEventAuditLimiter;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,9 +28,12 @@ import java.util.List;
 public class GlobalExceptionHandler {
 
     private final BitacoraService audit;
+    private final SecurityEventAuditLimiter auditLimiter;
 
-    public GlobalExceptionHandler(ObjectProvider<BitacoraService> auditProvider) {
+    public GlobalExceptionHandler(ObjectProvider<BitacoraService> auditProvider,
+                                  ObjectProvider<SecurityEventAuditLimiter> auditLimiterProvider) {
         this.audit = auditProvider.getIfAvailable();
+        this.auditLimiter = auditLimiterProvider.getIfAvailable();
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -119,7 +123,7 @@ public class GlobalExceptionHandler {
     }
 
     private void recordAuditSafely(String action, HttpServletRequest request) {
-        if (audit == null) return;
+        if (audit == null || auditLimiter == null || !auditLimiter.shouldPersist(action, request)) return;
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         try {
             audit.recordSecurityEvent(authentication, action, request);

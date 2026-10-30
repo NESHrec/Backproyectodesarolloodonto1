@@ -4,6 +4,7 @@ import com.clinicaserena.auth.security.PatientBearerAuthenticationFilter;
 import com.clinicaserena.staff.security.StaffBearerAuthenticationFilter;
 import com.clinicaserena.common.response.ApiError;
 import com.clinicaserena.auditoria.service.BitacoraService;
+import com.clinicaserena.auditoria.service.SecurityEventAuditLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -61,6 +62,7 @@ public class SecurityConfig {
             PatientBearerAuthenticationFilter bearerFilter,
             StaffBearerAuthenticationFilter staffBearerFilter,
             ObjectProvider<BitacoraService> auditProvider,
+            SecurityEventAuditLimiter auditLimiter,
             Environment environment
     ) throws Exception {
         boolean developmentDocumentationEnabled = environment.acceptsProfiles(Profiles.of("dev"));
@@ -73,8 +75,8 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(unauthorizedEntryPoint(audit))
-                        .accessDeniedHandler(forbiddenHandler(audit)))
+                        .authenticationEntryPoint(unauthorizedEntryPoint(audit, auditLimiter))
+                        .accessDeniedHandler(forbiddenHandler(audit, auditLimiter)))
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers(HttpMethod.GET,
                                 "/api/v1/health",
@@ -125,9 +127,10 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private AuthenticationEntryPoint unauthorizedEntryPoint(BitacoraService audit) {
+    private AuthenticationEntryPoint unauthorizedEntryPoint(BitacoraService audit,
+                                                             SecurityEventAuditLimiter auditLimiter) {
         return (request, response, exception) -> {
-            recordAuditSafely(audit, "HTTP_401", request);
+            recordAuditSafely(audit, auditLimiter, "HTTP_401", request);
             writeError(response,
                 ApiError.of(UNAUTHORIZED.value(), "UNAUTHENTICATED", "Autenticación requerida"));
         };
@@ -138,23 +141,30 @@ public class SecurityConfig {
      * contenedor reenvía a /error, donde la solicitud llega sin autenticación y
      * se respondía 401 aunque la sesión fuera válida.
      */
-    private AccessDeniedHandler forbiddenHandler(BitacoraService audit) {
+    private AccessDeniedHandler forbiddenHandler(BitacoraService audit,
+                                                  SecurityEventAuditLimiter auditLimiter) {
         return (request, response, exception) -> {
-            recordAuditSafely(audit, "HTTP_403", request);
+            recordAuditSafely(audit, auditLimiter, "HTTP_403", request);
             writeError(response,
                 ApiError.of(FORBIDDEN.value(), "FORBIDDEN", "No tienes permiso para esta operación"));
         };
     }
 
-    private static void recordAuditSafely(BitacoraService audit, String action,
+    private static void recordAuditSafely(BitacoraService audit, SecurityEventAuditLimiter auditLimiter,
+                                          String action,
                                           jakarta.servlet.http.HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (audit == null) return;
+        if (audit == null || !auditLimiter.shouldPersist(action, request)) return;
         try {
             audit.recordSecurityEvent(authentication, action, request);
         } catch (RuntimeException ignored) {
             // Keep the original security response if the audit store is unavailable.
         }
+    }
+
+    @Bean
+    public SecurityEventAuditLimiter securityEventAuditLimiter() {
+        return new SecurityEventAuditLimiter();
     }
 
     private static void writeError(HttpServletResponse response, ApiError error) throws java.io.IOException {
