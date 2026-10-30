@@ -38,6 +38,8 @@ jobs:
       TEST_DB_PASSWORD: ci-test-only
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -76,3 +78,13 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
+      - name: Report SonarQube gate conditions
+        if: ${{ always() && github.event_name == 'push' }}
+        continue-on-error: true
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --user "$SONAR_TOKEN:" \
+            "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=clinica-serena-backend" \
+            | jq '{status:.projectStatus.status, conditions:[.projectStatus.conditions[] | {metricKey,status,errorThreshold,actualValue}]}'
