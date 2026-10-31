@@ -8,12 +8,29 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.Collection;
+import java.util.List;
 
 public interface PacienteAdministrativoRepository extends JpaRepository<PacienteAdministrativo, String> {
+
+    interface PatientNameProjection {
+        String getPatientId();
+        String getFullName();
+    }
 
     Optional<PacienteAdministrativo> findByTelefonoNormalizado(String telefonoNormalizado);
 
     Optional<PacienteAdministrativo> findByEmailContactoNormalizado(String emailContactoNormalizado);
+
+    @Query(value = """
+            select patient.id as "patientId",
+                   coalesce(admin.nombre_completo, account.nombre_completo) as "fullName"
+            from pacientes patient
+            left join pacientes_administrativos admin on admin.paciente_id = patient.id
+            left join cuentas_paciente account on account.paciente_id = patient.id
+            where patient.id in (:patientIds)
+            """, nativeQuery = true)
+    List<PatientNameProjection> findNamesByPatientIds(@Param("patientIds") Collection<String> patientIds);
 
     @Query(value = """
             with patient_ids as (

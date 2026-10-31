@@ -72,6 +72,8 @@ class StaffControllerIntegrationTest {
         jdbc.update("INSERT INTO cuentas_personal(id,email_normalizado,nombre_completo,password_hash,rol,estado,creado_en,actualizada_en) VALUES (?,?,? ,?,'MEDICO','ACTIVA',?,?)",
                 MEDICO_ID, "doctor.staff@example.test", "Médico de prueba", hash, now, now);
         jdbc.update("INSERT INTO pacientes(id,estado,creado_en) VALUES (?, 'ACTIVO', ?)", PATIENT_ID, now);
+        jdbc.update("INSERT INTO pacientes_administrativos(paciente_id,nombre_completo,telefono,telefono_normalizado,creado_por_personal_id,creado_en) VALUES (?,?,?,?,?,?)",
+                PATIENT_ID, "Paciente de prueba", "+50255550123", "50255550123", RECEPTION_ID, now);
         jdbc.update("INSERT INTO especialidades(id,nombre,descripcion) VALUES (?,?,?)", SPECIALTY_ID, "Especialidad de prueba", "Solo fixture");
         jdbc.update("INSERT INTO medicos(id,nombre_completo,especialidad_id,numero_colegiado) VALUES (?,?,?,?)",
                 PRACTITIONER_ID, "Profesional de prueba", SPECIALTY_ID, "STAFF-" + PRACTITIONER_ID);
@@ -157,10 +159,13 @@ class StaffControllerIntegrationTest {
         String token = login("reception.staff@example.test");
         mockMvc.perform(get("/api/v1/staff/agenda").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(APPOINTMENT_ID))
+                .andExpect(jsonPath("$[0].patientId").value(PATIENT_ID))
+                .andExpect(jsonPath("$[0].patientName").value("Paciente de prueba"))
                 .andExpect(jsonPath("$[0].arrivalAt").value(org.hamcrest.Matchers.nullValue()));
         mockMvc.perform(post("/api/v1/staff/agenda/{id}/arrival", APPOINTMENT_ID)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.arrivalAt").isString())
+                .andExpect(jsonPath("$.patientName").value("Paciente de prueba"))
                 .andExpect(jsonPath("$.arrivalByAccountId").value(RECEPTION_ID));
         mockMvc.perform(post("/api/v1/staff/agenda/{id}/arrival", APPOINTMENT_ID)
                         .header("Authorization", "Bearer " + token))
@@ -242,6 +247,7 @@ class StaffControllerIntegrationTest {
         jdbc.update("DELETE FROM sesiones_personal WHERE cuenta_id IN (?, ?, ?)", ADMIN_ID, RECEPTION_ID, MEDICO_ID);
         jdbc.update("UPDATE citas SET llegada_por_personal_id = NULL, llegada_en = NULL WHERE id = ?", APPOINTMENT_ID);
         jdbc.update("DELETE FROM citas WHERE id = ?", APPOINTMENT_ID);
+        jdbc.update("DELETE FROM pacientes_administrativos WHERE paciente_id = ?", PATIENT_ID);
         jdbc.update("DELETE FROM cuentas_personal WHERE id IN (?, ?, ?)", ADMIN_ID, RECEPTION_ID, MEDICO_ID);
         jdbc.update("DELETE FROM bloques_disponibilidad WHERE id = ?", BLOCK_ID);
         jdbc.update("DELETE FROM medicos WHERE id = ?", PRACTITIONER_ID);
