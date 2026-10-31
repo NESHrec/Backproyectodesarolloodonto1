@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
 public record ReceptionAppointmentResponse(
         String id,
         String patientId,
+        String patientName,
         String practitionerId,
         String specialtyId,
         OffsetDateTime scheduledAt,

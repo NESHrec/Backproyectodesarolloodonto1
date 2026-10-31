@@ -4,6 +4,7 @@ import com.clinicaserena.citas.entity.Cita;
 import com.clinicaserena.citas.entity.EstadoCita;
 import com.clinicaserena.citas.repository.CitaRepository;
 import com.clinicaserena.common.exception.ApiException;
+import com.clinicaserena.recepcion.repository.PacienteAdministrativoRepository;
 import com.clinicaserena.staff.dto.ReceptionAppointmentResponse;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -13,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.staff.security.StaffPrincipal;
 
@@ -20,10 +23,13 @@ import com.clinicaserena.staff.security.StaffPrincipal;
 public class StaffAgendaService {
 
     private final CitaRepository citaRepository;
+    private final PacienteAdministrativoRepository patientRepository;
     private final BitacoraService audit;
 
-    public StaffAgendaService(CitaRepository citaRepository, BitacoraService audit) {
+    public StaffAgendaService(CitaRepository citaRepository, PacienteAdministrativoRepository patientRepository,
+                              BitacoraService audit) {
         this.citaRepository = citaRepository;
+        this.patientRepository = patientRepository;
         this.audit = audit;
     }
 
@@ -38,8 +44,14 @@ public class StaffAgendaService {
         if (!end.isAfter(start)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "DATE_RANGE_INVALID", "El rango de fechas no es válido");
         }
-        return citaRepository.findForStaffAgenda(start, end, status, PageRequest.of(0, limit))
-                .stream().map(this::toResponse).toList();
+        List<Cita> appointments = citaRepository.findForStaffAgenda(start, end, status, PageRequest.of(0, limit));
+        if (appointments.isEmpty()) return List.of();
+        Map<String, String> patientNames = patientRepository.findNamesByPatientIds(
+                        appointments.stream().map(Cita::getPacienteId).distinct().toList()).stream()
+                .filter(patient -> patient.getFullName() != null && !patient.getFullName().isBlank())
+                .collect(Collectors.toMap(PacienteAdministrativoRepository.PatientNameProjection::getPatientId,
+                        PacienteAdministrativoRepository.PatientNameProjection::getFullName));
+        return appointments.stream().map(cita -> toResponse(cita, patientNames.get(cita.getPacienteId()))).toList();
     }
 
     @Transactional
@@ -54,13 +66,22 @@ public class StaffAgendaService {
         }
         OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC);
         cita.registrarLlegada(now, principal.accountId());
-        ReceptionAppointmentResponse response=toResponse(citaRepository.saveAndFlush(cita));
+        ReceptionAppointmentResponse response=toResponse(citaRepository.saveAndFlush(cita),
+                findPatientName(cita.getPacienteId()));
         audit.record(principal,"APPOINTMENT_ARRIVAL_RECORDED","CITA",appointmentId,now);
         return response;
     }
 
-    private ReceptionAppointmentResponse toResponse(Cita cita) {
-        return new ReceptionAppointmentResponse(cita.getId(), cita.getPacienteId(), cita.getMedico().getId(),
+    private String findPatientName(String patientId) {
+        return patientRepository.findNamesByPatientIds(List.of(patientId)).stream()
+                .map(PacienteAdministrativoRepository.PatientNameProjection::getFullName)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst().orElse("Paciente sin nombre registrado");
+    }
+
+    private ReceptionAppointmentResponse toResponse(Cita cita, String patientName) {
+        return new ReceptionAppointmentResponse(cita.getId(), cita.getPacienteId(),
+                patientName == null ? "Paciente sin nombre registrado" : patientName, cita.getMedico().getId(),
                 cita.getEspecialidad().getId(), cita.getProgramadaEn(), cita.getEstado(), cita.getLlegadaEn(),
                 cita.getLlegadaPorPersonalId());
     }
