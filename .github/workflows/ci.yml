@@ -68,15 +68,18 @@ jobs:
             http://127.0.0.1:19001/api/system/status >/dev/null
       - name: SonarQube analysis and Quality Gate
         if: ${{ github.event_name == 'push' }}
-        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ github.ref == 'refs/heads/dev' && secrets.SONAR_TOKEN_DEV || secrets.SONAR_TOKEN }}
-        with:
-          args: >-
-            -Dsonar.projectKey=${{ github.ref == 'refs/heads/dev' && 'clinica-serena-backend-dev' || 'clinica-serena-backend' }}
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-            -Dsonar.qualitygate.wait=true
+          SONAR_PROJECT_KEY: ${{ github.ref == 'refs/heads/dev' && 'clinica-serena-backend-dev' || 'clinica-serena-backend' }}
+          SONAR_PROJECT_VERSION: ${{ github.sha }}
+        run: |
+          ./mvnw --batch-mode --no-transfer-progress \
+            org.sonarsource.scanner.maven:sonar-maven-plugin:3.11.0.3922:sonar \
+            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+            -Dsonar.projectVersion="$SONAR_PROJECT_VERSION" \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.qualitygate.wait=true \
             -Dsonar.qualitygate.timeout=300
       - name: Report SonarQube gate conditions
         if: ${{ always() && github.event_name == 'push' }}
