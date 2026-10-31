@@ -9,8 +9,9 @@ import com.clinicaserena.auth.entity.EstadoPaciente;
 import com.clinicaserena.auth.entity.SesionPaciente;
 import com.clinicaserena.auth.repository.CuentaPacienteRepository;
 import com.clinicaserena.auth.repository.SesionPacienteRepository;
-import com.clinicaserena.auth.security.PatientPrincipal;
+import com.clinicaserena.auth.security.DummyPasswordHash;
 import com.clinicaserena.auth.security.LoginAttemptGuard;
+import com.clinicaserena.auth.security.PatientPrincipal;
 import com.clinicaserena.auth.security.TokenHasher;
 import com.clinicaserena.auditoria.service.BitacoraService;
 import com.clinicaserena.common.exception.ApiException;
@@ -31,13 +32,12 @@ import java.util.UUID;
 public class PatientAuthService {
 
     private static final String GENERIC_LOGIN_ERROR = "Credenciales inválidas";
-    private static final String DUMMY_PASSWORD_HASH =
-            "$2a$10$7SVF2Ae33PSty.ijWwytpuz43k/lWcvX3vNyNajyRggg7Bg/CjtTO";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final CuentaPacienteRepository cuentaRepository;
     private final SesionPacienteRepository sesionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final String dummyPasswordHash;
     private final LoginAttemptGuard loginAttemptGuard;
     private final long sessionTtlSeconds;
     private final BitacoraService audit;
@@ -53,6 +53,7 @@ public class PatientAuthService {
         this.cuentaRepository = cuentaRepository;
         this.sesionRepository = sesionRepository;
         this.passwordEncoder = passwordEncoder;
+        this.dummyPasswordHash = DummyPasswordHash.create(passwordEncoder);
         this.loginAttemptGuard = loginAttemptGuard;
         this.sessionTtlSeconds = sessionTtlSeconds;
         this.audit = audit;
@@ -69,7 +70,7 @@ public class PatientAuthService {
         }
 
         CuentaPaciente account = cuentaRepository.findByEmailNormalizado(email).orElse(null);
-        String passwordHash = account == null ? DUMMY_PASSWORD_HASH : account.getPasswordHash();
+        String passwordHash = account == null ? dummyPasswordHash : account.getPasswordHash();
         boolean passwordMatches = passwordEncoder.matches(request.password(), passwordHash);
         boolean accountIsActive = account != null
                 && account.getEstado() == EstadoCuentaPaciente.ACTIVA

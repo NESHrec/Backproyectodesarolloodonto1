@@ -8,6 +8,7 @@ import com.clinicaserena.auth.entity.EstadoPaciente;
 import com.clinicaserena.auth.entity.SesionPaciente;
 import com.clinicaserena.auth.repository.CuentaPacienteRepository;
 import com.clinicaserena.auth.repository.SesionPacienteRepository;
+import com.clinicaserena.auth.security.DummyPasswordHash;
 import com.clinicaserena.auth.security.LoginAttemptGuard;
 import com.clinicaserena.auth.security.TokenHasher;
 import com.clinicaserena.auditoria.service.BitacoraService;
@@ -35,8 +36,6 @@ import java.util.UUID;
 public class UnifiedAuthService {
 
     private static final String GENERIC_LOGIN_ERROR = "Credenciales inválidas";
-    private static final String DUMMY_PASSWORD_HASH =
-            "$2a$10$7SVF2Ae33PSty.ijWwytpuz43k/lWcvX3vNyNajyRggg7Bg/CjtTO";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final CuentaPacienteRepository patientAccounts;
@@ -44,6 +43,7 @@ public class UnifiedAuthService {
     private final CuentaPersonalRepository staffAccounts;
     private final SesionPersonalRepository staffSessions;
     private final PasswordEncoder passwordEncoder;
+    private final String dummyPasswordHash;
     private final LoginAttemptGuard loginAttemptGuard;
     private final long patientSessionTtlSeconds;
     private final long staffSessionTtlSeconds;
@@ -65,6 +65,7 @@ public class UnifiedAuthService {
         this.staffAccounts = staffAccounts;
         this.staffSessions = staffSessions;
         this.passwordEncoder = passwordEncoder;
+        this.dummyPasswordHash = DummyPasswordHash.create(passwordEncoder);
         this.loginAttemptGuard = loginAttemptGuard;
         this.patientSessionTtlSeconds = patientSessionTtlSeconds;
         this.staffSessionTtlSeconds = staffSessionTtlSeconds;
@@ -85,7 +86,7 @@ public class UnifiedAuthService {
         CuentaPersonal staff = staffAccounts.findByEmailNormalizado(email).orElse(null);
 
         if (patient != null && staff != null) {
-            passwordEncoder.matches(request.password(), DUMMY_PASSWORD_HASH);
+            passwordEncoder.matches(request.password(), dummyPasswordHash);
             loginAttemptGuard.recordFailure(attemptKey, remoteAddress);
             audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
             throw invalidCredentials();
@@ -121,7 +122,7 @@ public class UnifiedAuthService {
             return new UnifiedLoginResponse(token, "Bearer", staffSessionTtlSeconds, "PERSONAL", staff.getRol().name());
         }
 
-        passwordEncoder.matches(request.password(), DUMMY_PASSWORD_HASH);
+        passwordEncoder.matches(request.password(), dummyPasswordHash);
         loginAttemptGuard.recordFailure(attemptKey, remoteAddress);
         audit.recordAnonymousSecurityEvent("AUTH_LOGIN_FAILED", remoteAddress);
         throw invalidCredentials();

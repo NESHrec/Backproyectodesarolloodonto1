@@ -1,6 +1,7 @@
 package com.clinicaserena.staff.service;
 
 import com.clinicaserena.auth.dto.LoginResponse;
+import com.clinicaserena.auth.security.DummyPasswordHash;
 import com.clinicaserena.auth.security.LoginAttemptGuard;
 import com.clinicaserena.auth.security.TokenHasher;
 import com.clinicaserena.common.exception.ApiException;
@@ -35,13 +36,12 @@ import java.util.UUID;
 public class StaffAuthService {
 
     private static final String GENERIC_LOGIN_ERROR = "Credenciales inválidas";
-    private static final String DUMMY_PASSWORD_HASH =
-            "$2a$10$7SVF2Ae33PSty.ijWwytpuz43k/lWcvX3vNyNajyRggg7Bg/CjtTO";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final CuentaPersonalRepository accountRepository;
     private final SesionPersonalRepository sessionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final String dummyPasswordHash;
     private final LoginAttemptGuard loginAttemptGuard;
     private final long sessionTtlSeconds;
     private final BitacoraService audit;
@@ -55,6 +55,7 @@ public class StaffAuthService {
         this.accountRepository = accountRepository;
         this.sessionRepository = sessionRepository;
         this.passwordEncoder = passwordEncoder;
+        this.dummyPasswordHash = DummyPasswordHash.create(passwordEncoder);
         this.loginAttemptGuard = loginAttemptGuard;
         this.sessionTtlSeconds = sessionTtlSeconds;
         this.audit = audit;
@@ -72,7 +73,7 @@ public class StaffAuthService {
 
         CuentaPersonal account = accountRepository.findByEmailNormalizado(email).orElse(null);
         boolean passwordMatches = passwordEncoder.matches(request.password(),
-                account == null ? DUMMY_PASSWORD_HASH : account.getPasswordHash());
+                account == null ? dummyPasswordHash : account.getPasswordHash());
         boolean active = account != null && account.getEstado() == EstadoCuentaPersonal.ACTIVA;
         if (!passwordMatches || !active) {
             loginAttemptGuard.recordFailure(key, address);
