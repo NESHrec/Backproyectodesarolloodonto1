@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class ClockConfigTest {
 
     @Test
-    void configuredClockUsesUtcZone() {
+    void clockUsesUtc() {
         assertEquals(ZoneOffset.UTC, new ClockConfig().clock().getZone());
     }
 }
